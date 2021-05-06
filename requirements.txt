@@ -1,0 +1,5 @@
+numpy>=1.19.5
+tabulate>=0.8.3
+tqdm~=4.60.0
+mlrun>=0.6.2
+setuptools>=56.1.0
