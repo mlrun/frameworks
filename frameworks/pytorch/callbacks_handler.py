@@ -3,7 +3,11 @@ from torch import Tensor
 from torch.nn import Module
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
-from callbacks.callback import Callback, MetricFunctionType, MetricValueType
+from frameworks.pytorch.callbacks.callback import (
+    Callback,
+    MetricFunctionType,
+    MetricValueType,
+)
 
 
 class _CallbackInterface:

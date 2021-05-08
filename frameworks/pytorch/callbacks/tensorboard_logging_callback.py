@@ -8,7 +8,7 @@ from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.tensorboard.summary import hparams
-from pytorch.callbacks.logging_callback import (
+from frameworks.pytorch.callbacks.logging_callback import (
     LoggingCallback,
     TrackableType,
     MetricFunctionType,

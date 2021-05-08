@@ -1,6 +1,6 @@
 from typing import Union, List, Dict, Tuple
 import mlrun
-from pytorch.callbacks.logging_callback import LoggingCallback, TrackableType
+from frameworks.pytorch.callbacks.logging_callback import LoggingCallback, TrackableType
 
 
 class MLRunLoggingCallback(LoggingCallback):

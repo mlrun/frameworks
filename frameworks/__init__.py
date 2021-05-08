@@ -1,1 +1,1 @@
-import pytorch
+from frameworks import pytorch

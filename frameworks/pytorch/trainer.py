@@ -9,8 +9,12 @@ from torch.utils.data import DataLoader
 from torch.optim import Optimizer
 from mlrun.execution import MLClientCtx
 from frameworks.base.trainer import Trainer
-from callbacks.callback import Callback, MetricFunctionType, MetricValueType
-from callbacks_handler import CallbacksHandler
+from frameworks.pytorch.callbacks.callback import (
+    Callback,
+    MetricFunctionType,
+    MetricValueType,
+)
+from frameworks.pytorch.callbacks_handler import CallbacksHandler
 
 
 class PyTorchTrainer(Trainer):
