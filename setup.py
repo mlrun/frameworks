@@ -130,7 +130,7 @@ setup(
     author_email="yaronh@iguazio.com",
     license="MIT",
     url="https://github.com/mlrun/frameworks",
-    packages=FRAMEWORKS_PACKAGES,
+    packages=list(FRAMEWORKS_PACKAGES.values()),
     install_requires=get_requirements(),
     classifiers=[
         "Development Status :: 4 - Beta",
