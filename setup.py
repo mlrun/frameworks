@@ -1,6 +1,7 @@
+from typing import List
 import os
 import logging
-from typing import List
+import itertools
 
 try:
     from setuptools import setup
@@ -27,7 +28,7 @@ FRAMEWORKS_REQUIREMENTS = {
 }
 
 FRAMEWORKS_PACKAGES = {
-    FrameworkKeys.PYTORCH: "frameworks.pytorch",
+    FrameworkKeys.PYTORCH: ["frameworks.pytorch", "frameworks.pytorch.callbacks"],
     # FrameworkKeys.PYTORCH_LIGHTNING: "frameworks.pytorch_lightning",
     # FrameworkKeys.TENSORFLOW: "frameworks.tensorflow",
     # FrameworkKeys.TENSORFLOW_KERAS: "frameworks.tensorflow_keras"
@@ -130,7 +131,7 @@ setup(
     author_email="yaronh@iguazio.com",
     license="MIT",
     url="https://github.com/mlrun/frameworks",
-    packages=list(FRAMEWORKS_PACKAGES.values()),
+    packages=list(itertools.chain.from_iterable(FRAMEWORKS_PACKAGES.values())),
     install_requires=get_requirements(),
     classifiers=[
         "Development Status :: 4 - Beta",
