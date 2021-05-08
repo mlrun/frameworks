@@ -14,6 +14,7 @@ logger = logging.getLogger()
 
 
 class FrameworkKeys:
+    BASE = "Base"
     PYTORCH = "PyTorch"
     PYTORCH_LIGHTNING = "PyTorch-Lightning"
     TENSORFLOW = "Tensorflow"
@@ -21,6 +22,7 @@ class FrameworkKeys:
 
 
 FRAMEWORKS_REQUIREMENTS = {
+    FrameworkKeys.BASE: "requirements.txt",
     FrameworkKeys.PYTORCH: os.path.join("frameworks/pytorch", "requirements.txt"),
     # FrameworkKeys.PYTORCH_LIGHTNING: os.path.join("frameworks/pytorch_lightning", "requirements.txt"),
     # FrameworkKeys.TENSORFLOW: os.path.join("frameworks/tensorflow", "requirements.txt"),
@@ -28,6 +30,7 @@ FRAMEWORKS_REQUIREMENTS = {
 }
 
 FRAMEWORKS_PACKAGES = {
+    FrameworkKeys.BASE: ["frameworks"],
     FrameworkKeys.PYTORCH: ["frameworks.pytorch", "frameworks.pytorch.callbacks"],
     # FrameworkKeys.PYTORCH_LIGHTNING: "frameworks.pytorch_lightning",
     # FrameworkKeys.TENSORFLOW: "frameworks.tensorflow",
@@ -105,9 +108,7 @@ def get_requirements() -> List[str]:
     requirements = []
 
     # Collect all requirements.txt files needed:
-    requirements_txt_files = list(FRAMEWORKS_REQUIREMENTS.values()) + [
-        "requirements.txt"
-    ]
+    requirements_txt_files = list(FRAMEWORKS_REQUIREMENTS.values())
 
     # Add all the requirements from each of the requirements.txt files:
     for requirement_txt_file in requirements_txt_files:
