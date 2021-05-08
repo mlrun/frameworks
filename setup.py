@@ -30,7 +30,7 @@ FRAMEWORKS_REQUIREMENTS = {
 }
 
 FRAMEWORKS_PACKAGES = {
-    FrameworkKeys.BASE: ["frameworks"],
+    FrameworkKeys.BASE: ["frameworks", "frameworks.base"],
     FrameworkKeys.PYTORCH: ["frameworks.pytorch", "frameworks.pytorch.callbacks"],
     # FrameworkKeys.PYTORCH_LIGHTNING: "frameworks.pytorch_lightning",
     # FrameworkKeys.TENSORFLOW: "frameworks.tensorflow",
