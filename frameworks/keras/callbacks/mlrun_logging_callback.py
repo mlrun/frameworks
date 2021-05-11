@@ -71,58 +71,57 @@ class MLRunLoggingCallback(LoggingCallback):
 
     def on_train_end(self, logs: dict = None):
         artifact_path = os.path.join(self._context.artifact_path, self._run_name)
-        print(artifact_path)
-        # os.makedirs(artifact_path, exist_ok=True)
-        #
-        # # Save the model:
-        # model_path = os.path.join(artifact_path, self.model.name)
-        # self.model.save(model_path)
-        # model_directory_artifact = self._context.log_artifact(
-        #     "model-directory",
-        #     local_path=model_path,
-        #     artifact_path=artifact_path,
-        #     db_key=False,
-        # )
-        #
-        # # Produce training chart artifact
-        # chart_name = "summary.html"
-        # chart_artifact = ChartArtifact(chart_name)
-        # chart_artifact.header = (
-        #     ["epoch"]
-        #     + list(self._static_hyperparameters.keys())
-        #     + list(self._dynamic_hyperparameters.keys())
-        #     + list(self._summaries.keys())
-        # )
-        # for i in range(self._epochs + 1):
-        #     row = [i]
-        #     for value in self._static_hyperparameters.values():
-        #         row.append(value)
-        #     for epoch_values in self._dynamic_hyperparameters.values():
-        #         row.append(epoch_values[i])
-        #     for epoch_values in self._summaries.values():
-        #         if i == 0:
-        #             row.append("-")
-        #         else:
-        #             row.append(epoch_values[i - 1])
-        #     chart_artifact.add_row(row=row)
-        # summary_artifact = self._context.log_artifact(
-        #     chart_artifact,
-        #     local_path=chart_name,
-        #     artifact_path=artifact_path,
-        # )
-        #
-        # # Log the model as a `model` artifact in MLRun:
-        # self._context.log_model(
-        #     self._run_name,
-        #     artifact_path=artifact_path,
-        #     labels={"framework": "keras"},
-        #     metrics=self._context.results,
-        #     extra_data={
-        #         "training-summary": summary_artifact,
-        #         "model-directory": model_directory_artifact,
-        #     },
-        # )
-        # self._context.commit()
+        os.makedirs(artifact_path, exist_ok=True)
+
+        # Save the model:
+        model_path = os.path.join(artifact_path, self.model.name)
+        self.model.save(model_path)
+        model_directory_artifact = self._context.log_artifact(
+            "model-directory",
+            local_path=model_path,
+            artifact_path=artifact_path,
+            db_key=False,
+        )
+
+        # Produce training chart artifact
+        chart_name = "summary.html"
+        chart_artifact = ChartArtifact(chart_name)
+        chart_artifact.header = (
+            ["epoch"]
+            + list(self._static_hyperparameters.keys())
+            + list(self._dynamic_hyperparameters.keys())
+            + list(self._summaries.keys())
+        )
+        for i in range(self._epochs + 1):
+            row = [i]
+            for value in self._static_hyperparameters.values():
+                row.append(value)
+            for epoch_values in self._dynamic_hyperparameters.values():
+                row.append(epoch_values[i])
+            for epoch_values in self._summaries.values():
+                if i == 0:
+                    row.append("-")
+                else:
+                    row.append(epoch_values[i - 1])
+            chart_artifact.add_row(row=row)
+        summary_artifact = self._context.log_artifact(
+            chart_artifact,
+            local_path=chart_name,
+            artifact_path=artifact_path,
+        )
+
+        # Log the model as a `model` artifact in MLRun:
+        self._context.log_model(
+            self._run_name,
+            artifact_path=artifact_path,
+            labels={"framework": "keras"},
+            metrics=self._context.results,
+            extra_data={
+                "training-summary": summary_artifact,
+                "model-directory": model_directory_artifact,
+            },
+        )
+        self._context.commit()
 
     def on_epoch_end(self, epoch: int, logs: Dict[str, TrackableType] = None):
         """
