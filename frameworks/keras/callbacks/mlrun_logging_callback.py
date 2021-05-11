@@ -74,11 +74,10 @@ class MLRunLoggingCallback(LoggingCallback):
         os.makedirs(artifact_path, exist_ok=True)
 
         # Save the model:
-        model_path = os.path.join(artifact_path, self.model.name)
-        self.model.save(model_path)
+        self.model.save(os.path.join(artifact_path, self.model.name))
         model_directory_artifact = self._context.log_artifact(
             "model-directory",
-            local_path=model_path,
+            local_path=self.model.name,
             artifact_path=artifact_path,
             db_key=False,
         )
