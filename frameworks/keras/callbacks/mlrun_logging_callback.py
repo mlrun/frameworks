@@ -104,7 +104,7 @@ class MLRunLoggingCallback(LoggingCallback):
                 row.append(epoch_values[i])
             for epoch_values in self._summaries.values():
                 if i == 0:
-                    row.append("-")
+                    row.append(0)
                 else:
                     row.append(epoch_values[i - 1])
             chart_artifact.add_row(row=row)
