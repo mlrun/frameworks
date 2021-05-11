@@ -74,10 +74,20 @@ class MLRunLoggingCallback(LoggingCallback):
         os.makedirs(artifact_path, exist_ok=True)
 
         # Save the model:
-        self.model.save(os.path.join(artifact_path, self.model.name))
-        model_directory_artifact = self._context.log_artifact(
-            "model-directory",
-            local_path=self.model.name,
+        # self.model.save(os.path.join(artifact_path, self.model.name))
+        # model_directory_artifact = self._context.log_artifact(
+        #     "model-directory",
+        #     local_path=self.model.name,
+        #     artifact_path=artifact_path,
+        #     db_key=False,
+        # )
+        self.model.save("{}.h5".format(self.model.name))
+
+        # Save weights
+        self._model.save_weights("{}-weights.h5".format(self.model.name))
+        weights_artifact = self._context.log_artifact(
+            "{}-weights".format(self.model.name),
+            local_path="{}-weights.h5".format(self.model.name),
             artifact_path=artifact_path,
             db_key=False,
         )
@@ -111,13 +121,15 @@ class MLRunLoggingCallback(LoggingCallback):
 
         # Log the model as a `model` artifact in MLRun:
         self._context.log_model(
-            self._run_name,
+            "model",
             artifact_path=artifact_path,
-            labels={"framework": "keras"},
+            model_file="{}.h5".format(self.model.name),
+            labels={"framework": "tensorflow"},
             metrics=self._context.results,
             extra_data={
                 "training-summary": summary_artifact,
-                "model-directory": model_directory_artifact,
+                "model-architecture.json": bytes(self.model.to_json(), encoding="utf8"),
+                "model-weights.h5": weights_artifact,
             },
         )
         self._context.commit()
