@@ -269,36 +269,34 @@ class TensorboardLoggingCallback(LoggingCallback):
         super(TensorboardLoggingCallback, self).on_run_begin()
 
         # Check if needed to track hyperparameters:
-        if (
+        if not(
             len(self._static_hyperparameters) == 0
             and len(self._dynamic_hyperparameters) == 0
         ):
-            return
+            # Prepare the hyperparameters values:
+            non_graph_parameters = {}
+            for parameter, value in self._static_hyperparameters.items():
+                non_graph_parameters[parameter] = value
 
-        # Prepare the hyperparameters values:
-        non_graph_parameters = {}
-        for parameter, value in self._static_hyperparameters.items():
-            non_graph_parameters[parameter] = value
+            # Prepare the summaries values and the dynamic hyperparameters values:
+            graph_parameters = {}
+            for metric in self._summaries:
+                graph_parameters["{}/{}".format(self._Sections.SUMMARY, metric)] = 0.0
+            for parameter, epochs in self._dynamic_hyperparameters.items():
+                graph_parameters[
+                    "{}/{}".format(self._Sections.HYPERPARAMETERS, parameter)
+                ] = epochs[-1]
 
-        # Prepare the summaries values and the dynamic hyperparameters values:
-        graph_parameters = {}
-        for metric in self._summaries:
-            graph_parameters["{}/{}".format(self._Sections.SUMMARY, metric)] = 0.0
-        for parameter, epochs in self._dynamic_hyperparameters.items():
-            graph_parameters[
-                "{}/{}".format(self._Sections.HYPERPARAMETERS, parameter)
-            ] = epochs[-1]
+            # Write the hyperparameters and summaries table:
+            self._summary_writer.add_hparams(non_graph_parameters, graph_parameters)
 
-        # Write the hyperparameters and summaries table:
-        self._summary_writer.add_hparams(non_graph_parameters, graph_parameters)
-
-        # Add initial dynamic hyperparameters values (epoch 0) to their graphs:
-        for parameter, epochs in self._dynamic_hyperparameters.items():
-            self._summary_writer.add_scalar(
-                tag="{}/{}".format(self._Sections.HYPERPARAMETERS, parameter),
-                scalar_value=epochs[-1],
-                global_step=0,
-            )
+            # Add initial dynamic hyperparameters values (epoch 0) to their graphs:
+            for parameter, epochs in self._dynamic_hyperparameters.items():
+                self._summary_writer.add_scalar(
+                    tag="{}/{}".format(self._Sections.HYPERPARAMETERS, parameter),
+                    scalar_value=epochs[-1],
+                    global_step=0,
+                )
 
         # Draw the initial weights (epoch 0) graphs:
         for weight_name, weight_parameter in self._weights.items():

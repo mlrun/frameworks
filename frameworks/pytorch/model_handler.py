@@ -5,6 +5,7 @@ from torch.nn import Module
 from frameworks.base.model_handler import ModelHandler
 
 
+# TODO: Add custom objects support.
 class PyTorchModelHandler(ModelHandler):
     def __init__(
         self,

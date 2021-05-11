@@ -26,9 +26,9 @@ class PyTorchTrainer(Trainer):
         self,
         model: Module,
         training_set: DataLoader,
-        validation_set: DataLoader,
         loss_function: Module,
         optimizer: Optimizer,
+        validation_set: DataLoader = None,
         metric_functions: List[MetricFunctionType] = None,
         scheduler=None,
         epochs: int = 1,
@@ -39,9 +39,9 @@ class PyTorchTrainer(Trainer):
         Initialize a trainer for a given experiment objects.
         :param model:                 The model to train.
         :param training_set:          A data loader for the training process.
-        :param validation_set:        A data loader for the validation process.
         :param loss_function:         The loss function to use during training.
         :param optimizer:             The optimizer to use during the training.
+        :param validation_set:        A data loader for the validation process.
         :param metric_functions:      The metrics to use on training and validation.
         :param scheduler:             Scheduler to use on the optimizer at the end of each epoch. The scheduler must
                                       have a 'step' method with no input.
@@ -51,12 +51,13 @@ class PyTorchTrainer(Trainer):
         :param validation_iterations: Amount of iterations (batches) to perform on each epoch's validation. If 'None'
                                       the entire validation set will be used.
         """
+        # TODO: Align features of keras to PyTorch (like validation frequency).
         # Store the configurations:
         self._model = model
         self._training_set = training_set
-        self._validation_set = validation_set
         self._loss_function = loss_function
         self._optimizer = optimizer
+        self._validation_set = validation_set
         self._metric_functions = (
             metric_functions if metric_functions is not None else []
         )
@@ -115,15 +116,16 @@ class PyTorchTrainer(Trainer):
                 break
 
             # Validate:
-            callbacks_handler.on_validation_begin()
-            loss_value, metric_values = self._validate(
-                callbacks_handler=callbacks_handler
-            )
-            self._print_results(loss_value=loss_value, metric_values=metric_values)
-            if not callbacks_handler.on_validation_end(
-                loss_value=loss_value, metric_values=metric_values
-            ):
-                break
+            if self._validation_set is not None:
+                callbacks_handler.on_validation_begin()
+                loss_value, metric_values = self._validate(
+                    callbacks_handler=callbacks_handler
+                )
+                self._print_results(loss_value=loss_value, metric_values=metric_values)
+                if not callbacks_handler.on_validation_end(
+                    loss_value=loss_value, metric_values=metric_values
+                ):
+                    break
 
             # Step scheduler:
             if self._scheduler:

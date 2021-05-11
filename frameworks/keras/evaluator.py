@@ -1,10 +1,10 @@
 from frameworks.base.evaluator import Evaluator
 
 
-class PyTorchEvaluator(Evaluator):
+class KerasEvaluator(Evaluator):
     """
-    An interface for an evaluator - a class for wrapping a pytorch model evaluation process supplying additional mlrun
-    features.
+    An interface for an evaluator - a class for wrapping a tensorflow.keras model evaluation process supplying
+    additional mlrun features.
     """
 
     def __init__(self, *args, **kwargs):
@@ -16,7 +16,7 @@ class PyTorchEvaluator(Evaluator):
 
     def run(self, *args, **kwargs):
         """
-        Run mlrun's pytorch evaluator on the initialized objects. Callbacks should be passed here.
+        Run mlrun's keras evaluator on the initialized objects. Callbacks should be passed here.
         """
         raise NotImplementedError
 

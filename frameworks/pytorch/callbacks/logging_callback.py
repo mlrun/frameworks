@@ -219,7 +219,7 @@ class LoggingCallback(Callback):
 
     def on_epoch_begin(self, epoch: int):
         """
-        After the trainer given epoch begins, this method will be called to append a new list to each of the  metrics
+        After the trainer given epoch begins, this method will be called to append a new list to each of the metrics
         results for the new epoch.
         :param epoch: The epoch that is about to begin.
         """
@@ -369,9 +369,18 @@ class LoggingCallback(Callback):
         )
 
     def _on_batch_begin(self, batch: int):
+        """
+        Method to run on every batch (training and validation).
+        :param batch: The batch index.
+        """
         self._log_iteration = batch % self._per_iteration_logging == 0
 
     def _on_loss_end(self, results_dictionary: dict, loss_value: MetricValueType):
+        """
+        Log the given loss value to the given results dictionary.
+        :param results_dictionary: One of 'self._training_results' or 'self._validation_results'.
+        :param loss_value:         The loss value to log.
+        """
         # Check if this iteration should be logged:
         if not self._log_iteration:
             return
@@ -428,17 +437,21 @@ class LoggingCallback(Callback):
         :param key_chain: The keys and indices to get to the hyperparameter from the given source object.
         :return: The hyperparameter value.
         :raise KeyError:   In case the one of the keys in the key chain is incorrect.
+        :raise IndexError: In case the one of the keys in the key chain is incorrect.
         :raise ValueError: In case the value is not trackable.
         """
         # Get the value using the provided key chain:
         value = source.__dict__
         for key in key_chain:
             try:
-                value = value[key]
-            except KeyError or IndexError:
-                raise KeyError(
+                if isinstance(key, int):
+                    value = value[key]
+                else:
+                    value = getattr(value, key)
+            except KeyError or IndexError as KeyChainError:
+                raise KeyChainError(
                     "Error during getting a hyperparameter value from the {} object. "
-                    "The {} in it does not have the following key/index from the keys provided: {}"
+                    "The {} in it does not have the following key/index from the key provided: {}"
                     "".format(source.__class__, value.__class__, key)
                 )
 

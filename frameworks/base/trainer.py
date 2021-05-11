@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
 
+# TODO: Add multi-gpu per framework support and horovod support.
 class Trainer(ABC):
     """
     An interface for a trainer - a class for wrapping a framework training process supplying additional mlrun

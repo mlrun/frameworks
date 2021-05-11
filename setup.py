@@ -16,25 +16,30 @@ logger = logging.getLogger()
 class FrameworkKeys:
     BASE = "Base"
     PYTORCH = "PyTorch"
-    PYTORCH_LIGHTNING = "PyTorch-Lightning"
-    TENSORFLOW = "Tensorflow"
-    TENSORFLOW_KERAS = "Tensorflow-Keras"
+    # LIGHTNING = "Lightning"
+    # TENSORFLOW = "Tensorflow"
+    KERAS = "Keras"
 
 
 FRAMEWORKS_REQUIREMENTS = {
     FrameworkKeys.BASE: "requirements.txt",
     FrameworkKeys.PYTORCH: os.path.join("frameworks/pytorch", "requirements.txt"),
-    # FrameworkKeys.PYTORCH_LIGHTNING: os.path.join("frameworks/pytorch_lightning", "requirements.txt"),
+    # FrameworkKeys.LIGHTNING: os.path.join("frameworks/lightning", "requirements.txt"),
     # FrameworkKeys.TENSORFLOW: os.path.join("frameworks/tensorflow", "requirements.txt"),
-    # FrameworkKeys.TENSORFLOW_KERAS: os.path.join("frameworks/tensorflow_keras", "requirements.txt")
+    FrameworkKeys.KERAS: os.path.join(
+        "frameworks/keras", "requirements.txt"
+    ),
 }
 
 FRAMEWORKS_PACKAGES = {
     FrameworkKeys.BASE: ["frameworks", "frameworks.base"],
     FrameworkKeys.PYTORCH: ["frameworks.pytorch", "frameworks.pytorch.callbacks"],
-    # FrameworkKeys.PYTORCH_LIGHTNING: "frameworks.pytorch_lightning",
-    # FrameworkKeys.TENSORFLOW: "frameworks.tensorflow",
-    # FrameworkKeys.TENSORFLOW_KERAS: "frameworks.tensorflow_keras"
+    # FrameworkKeys.LIGHTNING: ["frameworks.lightning"],
+    # FrameworkKeys.TENSORFLOW: ["frameworks.tensorflow"],
+    FrameworkKeys.KERAS: [
+        "frameworks.keras",
+        "frameworks.keras.callbacks",
+    ],
 }
 
 
@@ -47,9 +52,9 @@ class InstallCommand(install):
 
     user_options = install.user_options + [
         ("pytorch", None, "install only the mlrun framework extention for pytorch"),
-        # ('pytorch-lightning', None, "install only the mlrun framework extention for pytorch lightning"),
+        # ('lightning', None, "install only the mlrun framework extention for pytorch-lightning"),
         # ('tensorflow', None, "install only the mlrun framework extention for tensorflow"),
-        # ('tensorflow-keras', None, "install only the mlrun framework extention for tensorflow keras")
+        ('keras', None, "install only the mlrun framework extention for tensorflow.keras")
     ]
 
     def initialize_options(self):
@@ -58,9 +63,9 @@ class InstallCommand(install):
         """
         install.initialize_options(self)
         self.pytorch = None
-        # self.pytorch_lightning = None
+        # self.lightning = None
         # self.tensorflow = None
-        # self.tensorflow_keras = None
+        self.keras = None
 
     def finalize_options(self):
         """
@@ -70,22 +75,22 @@ class InstallCommand(install):
         install.finalize_options(self)
         if (
             self.pytorch
-            # or self.pytorch_lightning
+            # or self.lightning
             # or self.tensorflow
-            # or self.tensorflow_keras
+            or self.keras
         ):
             if not self.pytorch:
                 FRAMEWORKS_REQUIREMENTS.pop(FrameworkKeys.PYTORCH)
                 FRAMEWORKS_PACKAGES.pop(FrameworkKeys.PYTORCH)
-            # if not self.pytorch_lightning:
-            #     REQUIREMENTS.pop(FrameworkKeys.PYTORCH_LIGHTNING)
-            #     PACKAGES.pop(FrameworkKeys.PYTORCH_LIGHTNING)
+            # if not self.lightning:
+            #     FRAMEWORKS_REQUIREMENTS.pop(FrameworkKeys.LIGHTNING)
+            #     FRAMEWORKS_PACKAGES.pop(FrameworkKeys.LIGHTNING)
             # if not self.tensorflow:
-            #     REQUIREMENTS.pop(FrameworkKeys.TENSORFLOW)
-            #     PACKAGES.pop(FrameworkKeys.TENSORFLOW)
-            # if not self.tensorflow_keras:
-            #     REQUIREMENTS.pop(FrameworkKeys.TENSORFLOW_KERAS)
-            #     PACKAGES.pop(FrameworkKeys.TENSORFLOW_KERAS)
+            #     FRAMEWORKS_REQUIREMENTS.pop(FrameworkKeys.TENSORFLOW)
+            #     FRAMEWORKS_PACKAGES.pop(FrameworkKeys.TENSORFLOW)
+            if not self.keras:
+                FRAMEWORKS_REQUIREMENTS.pop(FrameworkKeys.KERAS)
+                FRAMEWORKS_PACKAGES.pop(FrameworkKeys.KERAS)
 
     def run(self):
         """
@@ -116,7 +121,10 @@ def get_requirements() -> List[str]:
             requirements += [
                 requirement.strip()
                 for requirement in requirements_file
-                if requirement not in requirements and requirement[0] != "#"
+                if (
+                    requirement not in requirements
+                    and (requirement[0] != "#" and requirement.strip() != "")
+                )
             ]
 
     return requirements
