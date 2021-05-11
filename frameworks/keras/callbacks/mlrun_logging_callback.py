@@ -30,7 +30,6 @@ class MLRunLoggingCallback(LoggingCallback):
     def __init__(
         self,
         context: mlrun.MLClientCtx,
-        run_name: str,
         dynamic_hyperparameters: Dict[str, List[Union[str, int]]] = None,
         static_hyperparameters: Dict[
             str, Union[TrackableType, List[Union[str, int]]]
@@ -67,12 +66,8 @@ class MLRunLoggingCallback(LoggingCallback):
 
         # Store the context:
         self._context = context
-        self._run_name = run_name
 
     def on_train_end(self, logs: dict = None):
-        artifact_path = os.path.join(self._context.artifact_path, self._run_name)
-        os.makedirs(artifact_path, exist_ok=True)
-
         # Save the model:
         # self.model.save(os.path.join(artifact_path, self.model.name))
         # model_directory_artifact = self._context.log_artifact(
@@ -84,11 +79,11 @@ class MLRunLoggingCallback(LoggingCallback):
         self.model.save("{}.h5".format(self.model.name))
 
         # Save weights
-        self._model.save_weights("{}-weights.h5".format(self.model.name))
+        self.model.save_weights("{}-weights.h5".format(self.model.name))
         weights_artifact = self._context.log_artifact(
             "{}-weights".format(self.model.name),
             local_path="{}-weights.h5".format(self.model.name),
-            artifact_path=artifact_path,
+            artifact_path=self._context.artifact_path,
             db_key=False,
         )
 
@@ -116,13 +111,13 @@ class MLRunLoggingCallback(LoggingCallback):
         summary_artifact = self._context.log_artifact(
             chart_artifact,
             local_path=chart_name,
-            artifact_path=artifact_path,
+            artifact_path=self._context.artifact_path,
         )
 
         # Log the model as a `model` artifact in MLRun:
         self._context.log_model(
             "model",
-            artifact_path=artifact_path,
+            artifact_path=self._context.artifact_path,
             model_file="{}.h5".format(self.model.name),
             labels={"framework": "tensorflow"},
             metrics=self._context.results,

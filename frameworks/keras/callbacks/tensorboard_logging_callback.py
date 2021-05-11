@@ -123,9 +123,9 @@ class TensorboardLoggingCallback(LoggingCallback):
                 "the logging file but None were given.".format(self.__class__)
             )
 
-        # If a run name was not given, take the current timestamp as the run name in the format 'YYYY-mm-dd_HH:MM:SS':
+        # If a run name was not given, take the current timestamp as the run name in the format 'YYYY-mm-dd_HH-MM-SS':
         if run_name is None:
-            run_name = str(datetime.datetime.now()).split(".")[0].replace(" ", "_")
+            run_name = str(datetime.datetime.now()).split(".")[0].replace(" ", "_").replace(":", "-")
 
         # Save the configurations:
         self._tracked_weights = weights
