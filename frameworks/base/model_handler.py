@@ -1,5 +1,6 @@
+from typing import Type
 from abc import ABC, abstractmethod
-
+import importlib.util
 
 class ModelHandler(ABC):
     """
@@ -36,3 +37,20 @@ class ModelHandler(ABC):
         Load the specified model in this handler.
         """
         pass
+
+    def _import_module(self, class_name: str, py_file_path: str) -> Type:
+        """
+        Import the given class by its name from the given python file as: from 'py_file_path' import 'class_name'.
+        :param class_name:   The class name to be imported from the given python file.
+        :param py_file_path: Path to the python file with the class code.
+        :return: The imported class.
+        """
+        # Import the class:
+        spec = importlib.util.spec_from_file_location(
+            name=class_name, location=py_file_path
+        )
+        module = importlib.util.module_from_spec(spec=spec)
+        spec.loader.exec_module(module)
+
+        # Get the imported class and return it:
+        return getattr(module, class_name)

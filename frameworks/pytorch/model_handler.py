@@ -1,5 +1,4 @@
 from typing import Type
-import importlib.util
 import torch
 from torch.nn import Module
 from frameworks.base.model_handler import ModelHandler
@@ -29,13 +28,12 @@ class PyTorchModelHandler(ModelHandler):
         super(PyTorchModelHandler, self).__init__(model=model)
 
         # Store the model properties:
-        self._model = model
         self._class = model_class
         self._pt_file_path = model_pt_file_path
 
         # If the model's class name and py file were given, import them so the class will be ready to use for loading:
         if model_class_name and model_py_file_path:
-            self._import_module(
+            self._class = self._import_module(
                 class_name=model_class_name, py_file_path=model_py_file_path
             )
 
@@ -65,19 +63,3 @@ class PyTorchModelHandler(ModelHandler):
 
         # Load the state dictionary into it:
         self._model.load_state_dict(torch.load(self._pt_file_path))
-
-    def _import_module(self, class_name: str, py_file_path: str):
-        """
-        Import the model's class from the given python file as: from PY_FILE_PATH import CLASS_NAME
-        :param class_name:   The class name to be imported from the given python file.
-        :param py_file_path: Path to the python file with the class code.
-        """
-        # Import the class:
-        spec = importlib.util.spec_from_file_location(
-            name=class_name, location=py_file_path
-        )
-        module = importlib.util.module_from_spec(spec=spec)
-        spec.loader.exec_module(module)
-
-        # Store the imported class:
-        self._class = getattr(module, class_name)

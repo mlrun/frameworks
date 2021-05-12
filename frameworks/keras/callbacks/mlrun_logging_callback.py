@@ -119,7 +119,8 @@ class MLRunLoggingCallback(LoggingCallback):
             "model",
             artifact_path=self._context.artifact_path,
             model_file="{}.h5".format(self.model.name),
-            labels={"framework": "tensorflow"},
+            labels={"framework": 'tensorflow.keras'},
+            framework='tensorflow.keras',
             metrics=self._context.results,
             extra_data={
                 "training-summary": summary_artifact,
@@ -156,6 +157,9 @@ class MLRunLoggingCallback(LoggingCallback):
         # Go over the summaries and log them to the context:
         for metric, epochs in self._summaries.items():
             child_ctx.log_result(metric, epochs[-1])
+
+        # Update the last epoch to the main context:
+        self._context._results = child_ctx.results
 
         # Commit and commit children for MLRun flag bug:
         self._context.update_child_iterations(commit_children=True)

@@ -17,45 +17,51 @@ class SaveFormats:
     Save formats to pass to the 'KerasModelHandler'.
     """
 
-    SAVED_MODEL_DIRECTORY_FORMAT = "SavedModel"
-    JSON_ARCHITECTURE_H5_WEIGHTS_FORMAT = "json_h5"
+    SAVED_MODEL = "SavedModel"
+    JSON_ARCHITECTURE_H5_WEIGHTS = "Json_H5"
 
 
 class KerasModelHandler(ModelHandler):
     def __init__(
         self,
         model: Model = None,
-        model_file_path: str = None,
-        weights_file_path: str = None,
+        model_path: str = None,
+        weights_path: str = None,
         custom_objects: Dict[
             str,
             Union[
                 str, Type[Model], Type[Layer], Type[Loss], Type[Optimizer], Type[Metric]
             ],
         ] = None,
-        save_format: str = SaveFormats.JSON_ARCHITECTURE_H5_WEIGHTS_FORMAT,
+        save_format: str = SaveFormats.JSON_ARCHITECTURE_H5_WEIGHTS,
         save_traces: bool = False,
     ):
         """
         Initialize the handler. The model can be set here so it won't require loading.
-        :param model:             Model to handle or None in case a loading parameters were supplied.
-        :param model_path:   Path to the
-        :param weights_path: T
-        :param custom_objects:    A dictionary of all the custom objects required for loading the model. The keys are
-                                  the class name of the custom object and the value can be the class or a path to a
-                                  python file for the handler to import the class from. Notice, if the model was saved
-                                  with the 'save_traces' flag on (True) the custom objects are not needed for loading
-                                  the model, but each of the custom object must implement the methods 'get_config' and
-                                  'from_config'.
-        :param save_format:       The save format to use. Should be passed as a member of the class 'SaveFormats'.
-        :param save_traces:       Whether or not to use functions saving (only available for the save format
-                                  'SaveFormats.SAVED_MODEL_DIRECTORY_FORMAT') for loading the model later without the
-                                  custom objects dictionary.
+        :param model:          Model to handle or None in case a loading parameters were supplied.
+        :param model_path:     Path to the model directory (SavedModel format) or the model architecture (Json and H5
+                               format)
+        :param weights_path:   Path to the weights 'h5' file if the model was saved
+        :param custom_objects: A dictionary of all the custom objects required for loading the model. The keys are
+                               the class name of the custom object and the value can be the class or a path to a python
+                               file for the handler to import the class from. Notice, if the model was saved with the
+                               'save_traces' flag on (True) the custom objects are not needed for loading the model, but
+                               each of the custom object must implement the methods 'get_config' and 'from_config'.
+        :param save_format:    The save format to use. Should be passed as a member of the class 'SaveFormats'.
+        :param save_traces:    Whether or not to use functions saving (only available for the save format
+                               'SaveFormats.SAVED_MODEL_DIRECTORY_FORMAT') for loading the model later without the
+                               custom objects dictionary. Only from tensorflow version >= 2.4.0
         """
         # Set the model if given:
         super(KerasModelHandler, self).__init__(model=model)
 
-        raise NotImplementedError
+        # Store the configuration:
+        self._save_format = save_format
+        if save_traces:
+            if float(tf.__version__.rsplit('.', 1)[0]) < 2.4:
+                raise ValueError("The 'save_traces' parameter can be true only for tensorflow versions >= 2.4. Current "
+                                 "version is {}".format(tf.__version__))
+        self._save_traces = save_traces
 
     def save(self, output_path: str, *args, **kwargs):
         """
