@@ -1,15 +1,13 @@
 from typing import Union, Dict, Type
-import importlib.util
 
 import tensorflow as tf
-from tensorflow import keras
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Layer
 from tensorflow.keras.losses import Loss
 from tensorflow.keras.optimizers import Optimizer
 from tensorflow.keras.metrics import Metric
 
-from frameworks.base.model_handler import ModelHandler
+from frameworks._common.utilities.model_handler import ModelHandler
 
 
 class SaveFormats:
@@ -63,7 +61,7 @@ class KerasModelHandler(ModelHandler):
                                  "version is {}".format(tf.__version__))
         self._save_traces = save_traces
 
-    def save(self, output_path: str, *args, **kwargs):
+    def save(self, output_path: str = None, *args, **kwargs):
         """
         Save the handled model at the given output path.
         :param output_path: The full path to the directory and the model's file in it to save the handled model at.
@@ -75,7 +73,7 @@ class KerasModelHandler(ModelHandler):
             )
         raise NotImplementedError
 
-    def load(self, *args, **kwargs):
+    def load(self, uid: str = None, epoch: int = None, *args, **kwargs):
         """
         Load the specified model in this handler. Additional parameters for the class initializer can be passed via the
         args list and kwargs dictionary.

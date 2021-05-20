@@ -14,7 +14,7 @@ logger = logging.getLogger()
 
 
 class FrameworkKeys:
-    BASE = "Base"
+    COMMON = "Common"
     PYTORCH = "PyTorch"
     # LIGHTNING = "Lightning"
     # TENSORFLOW = "Tensorflow"
@@ -22,23 +22,37 @@ class FrameworkKeys:
 
 
 FRAMEWORKS_REQUIREMENTS = {
-    FrameworkKeys.BASE: "requirements.txt",
-    FrameworkKeys.PYTORCH: os.path.join("frameworks/pytorch", "requirements.txt"),
-    # FrameworkKeys.LIGHTNING: os.path.join("frameworks/lightning", "requirements.txt"),
-    # FrameworkKeys.TENSORFLOW: os.path.join("frameworks/tensorflow", "requirements.txt"),
-    FrameworkKeys.KERAS: os.path.join(
-        "frameworks/keras", "requirements.txt"
-    ),
+    FrameworkKeys.COMMON: "requirements.txt",
+    FrameworkKeys.PYTORCH: os.path.join("frameworks", "pytorch", "requirements.txt"),
+    # FrameworkKeys.LIGHTNING: os.path.join("frameworks", "lightning", "requirements.txt"),
+    # FrameworkKeys.TENSORFLOW: os.path.join("frameworks", "tensorflow", "requirements.txt"),
+    FrameworkKeys.KERAS: os.path.join("frameworks", "keras", "requirements.txt"),
 }
 
 FRAMEWORKS_PACKAGES = {
-    FrameworkKeys.BASE: ["frameworks", "frameworks.base"],
-    FrameworkKeys.PYTORCH: ["frameworks.pytorch", "frameworks.pytorch.callbacks"],
+    FrameworkKeys.COMMON: [
+        "frameworks",
+        "frameworks._common",
+        "frameworks._common.utilities",
+        "frameworks._common.training",
+        "frameworks._common.evaluation",
+        "frameworks._common.loggers",
+    ],
+    FrameworkKeys.PYTORCH: [
+        "frameworks.pytorch",
+        "frameworks.pytorch.utilities",
+        "frameworks.pytorch.training",
+        "frameworks.pytorch.evaluation",
+        "frameworks.pytorch.loggers",
+    ],
     # FrameworkKeys.LIGHTNING: ["frameworks.lightning"],
     # FrameworkKeys.TENSORFLOW: ["frameworks.tensorflow"],
     FrameworkKeys.KERAS: [
         "frameworks.keras",
-        "frameworks.keras.callbacks",
+        "frameworks.keras.utilities",
+        "frameworks.keras.training",
+        "frameworks.keras.evaluation",
+        "frameworks.keras.loggers",
     ],
 }
 
@@ -54,7 +68,11 @@ class InstallCommand(install):
         ("pytorch", None, "install only the mlrun framework extention for pytorch"),
         # ('lightning', None, "install only the mlrun framework extention for pytorch-lightning"),
         # ('tensorflow', None, "install only the mlrun framework extention for tensorflow"),
-        ('keras', None, "install only the mlrun framework extention for tensorflow.keras")
+        (
+            "keras",
+            None,
+            "install only the mlrun framework extention for tensorflow.keras",
+        ),
     ]
 
     def initialize_options(self):

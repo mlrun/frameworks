@@ -1,6 +1,10 @@
 from typing import Union, List, Dict, Tuple
+import numpy as np
 import mlrun
+from mlrun.artifacts import ChartArtifact, Artifact
+from frameworks._common.loggers import MLRunLogger
 from frameworks.pytorch.callbacks.logging_callback import LoggingCallback, TrackableType
+from frameworks.pytorch.utilities.model_handler import PyTorchModelHandler
 
 
 class MLRunLoggingCallback(LoggingCallback):
@@ -64,8 +68,13 @@ class MLRunLoggingCallback(LoggingCallback):
             per_iteration_logging=per_iteration_logging,
         )
 
-        # Store the context:
-        self._context = context
+        # Replace the logger with an MLRunLogger:
+        del self._logger
+        self._logger = MLRunLogger(context=context)
+
+    def on_run_end(self):
+        # TODO: Need to finish up the model holder
+        pass
 
     def on_epoch_end(self, epoch: int):
         """
@@ -76,25 +85,4 @@ class MLRunLoggingCallback(LoggingCallback):
         super(MLRunLoggingCallback, self).on_epoch_end(epoch=epoch)
 
         # Create child context to hold the current epoch's results:
-        child_ctx = self._context.get_child_context()
-
-        # Set the current iteration number according to the epoch number:
-        child_ctx._iteration = epoch
-
-        # Go over the static hyperparameters and log them to the context:
-        for parameter, value in self._static_hyperparameters.items():
-            child_ctx.log_result(parameter, value)
-
-        # Go over the dynamic hyperparameters and log them to the context:
-        for parameter, epochs in self._dynamic_hyperparameters.items():
-            child_ctx.log_result(parameter, epochs[-1])
-
-        # Go over the summaries and log them to the context:
-        for metric, epochs in self._summaries.items():
-            child_ctx.log_result(metric, epochs[-1])
-
-        # Commit and commit children for MLRun flag bug:
-        self._context.update_child_iterations(commit_children=True)
-        self._context.commit()
-
-    # TODO: Store plot artifacts for later logging the model as in scikit-learn.
+        self._logger.log_epoch_to_context(epoch=epoch)

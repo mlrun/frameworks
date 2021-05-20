@@ -1,8 +1,6 @@
 from typing import Union, List, Generator, Dict
 
-import tensorflow as tf
 from tensorflow.python.data import Dataset
-from tensorflow import keras
 from tensorflow.keras.models import Model
 from tensorflow.keras.utils import Sequence
 from tensorflow.keras.optimizers import Optimizer
@@ -11,12 +9,12 @@ from tensorflow.keras.metrics import Metric
 from tensorflow.keras.callbacks import Callback
 
 from mlrun.execution import MLClientCtx
-from frameworks.base.trainer import Trainer
+from frameworks._common.training.trainer import Trainer
 
 
 class KerasTrainer(Trainer):
     """
-    An interface for a tensorflow.keras model trainer, supporting the package's callbacks and automatic logging.
+    An interface for a tensorflow.keras model trainer, supporting the package's loggers and automatic logging.
     """
 
     def __init__(
@@ -97,7 +95,7 @@ class KerasTrainer(Trainer):
     def run(self, callbacks: List[Callback] = None):
         """
         Run the trainer training process on his initialized configuration.
-        :param callbacks: The callbacks to use on this run.
+        :param callbacks: The loggers to use on this run.
         """
         # Compile the model:
         # TODO: Apply missing arguments from the 'compile' method.

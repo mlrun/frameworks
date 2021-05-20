@@ -1,34 +1,34 @@
-from typing import Tuple, List
+from typing import Union, Tuple, List
 import sys
 from tabulate import tabulate
 from tqdm import tqdm
 import torch
 from torch import Tensor
 from torch.nn import Module
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
 from torch.optim import Optimizer
 from mlrun.execution import MLClientCtx
-from frameworks.base.trainer import Trainer
+from frameworks._common.training.trainer import Trainer
 from frameworks.pytorch.callbacks.callback import (
     Callback,
     MetricFunctionType,
     MetricValueType,
 )
-from frameworks.pytorch.callbacks_handler import CallbacksHandler
+from frameworks.pytorch.utilities.callbacks_handler import CallbacksHandler
 
 
 class PyTorchTrainer(Trainer):
     """
-    An interface for a pytorch model trainer, supporting the package's callbacks and automatic logging.
+    An interface for a pytorch model trainer, supporting the package's loggers and automatic logging.
     """
 
     def __init__(
         self,
         model: Module,
-        training_set: DataLoader,
+        training_set: Union[Dataset, DataLoader],
         loss_function: Module,
         optimizer: Optimizer,
-        validation_set: DataLoader = None,
+        validation_set: Union[Dataset, DataLoader] = None,
         metric_functions: List[MetricFunctionType] = None,
         scheduler=None,
         epochs: int = 1,
@@ -38,10 +38,14 @@ class PyTorchTrainer(Trainer):
         """
         Initialize a trainer for a given experiment objects.
         :param model:                 The model to train.
-        :param training_set:          A data loader for the training process.
+        :param training_set:          A dataset or data loader for the training process. If a dataset is given, a
+                                      defaulted data loader would be used for training. For Horovod, a dataset must be
+                                      provided and not a data loader.
         :param loss_function:         The loss function to use during training.
         :param optimizer:             The optimizer to use during the training.
-        :param validation_set:        A data loader for the validation process.
+        :param validation_set:        A dataset or data loader for the validation process. If a dataset is given, a
+                                      defaulted data loader would be used for training. For Horovod, a dataset must be
+                                      provided and not a data loader.
         :param metric_functions:      The metrics to use on training and validation.
         :param scheduler:             Scheduler to use on the optimizer at the end of each epoch. The scheduler must
                                       have a 'step' method with no input.
@@ -75,17 +79,17 @@ class PyTorchTrainer(Trainer):
             else validation_iterations
         )
 
-    def run(self, callbacks: List[Callback] = None):
+    def run(self, callbacks: List[Callback] = None, use_horovod: bool = False):
         """
         Run the trainer training process on his initialized configuration.
-        :param callbacks: The callbacks to use on this run.
+        :param callbacks: The loggers to use on this run.
         """
-        # Initialize a callbacks handler:
+        # Initialize a loggers handler:
         callbacks_handler = CallbacksHandler(
             callbacks=callbacks if callbacks is not None else []
         )
 
-        # Setup the callbacks functions:
+        # Setup the loggers functions:
         callbacks_handler.on_setup(
             model=self._model,
             training_set=self._training_set,
@@ -96,12 +100,12 @@ class PyTorchTrainer(Trainer):
             scheduler=self._scheduler,
         )
 
-        # Beginning of run callbacks:
+        # Beginning of run loggers:
         callbacks_handler.on_run_begin()
 
         # Start the epochs:
         for epoch in range(self._epochs):
-            # Beginning of a epoch callbacks:
+            # Beginning of a epoch loggers:
             callbacks_handler.on_epoch_begin(epoch=epoch)
             print(
                 "Epoch {}/{}:".format(
@@ -133,12 +137,12 @@ class PyTorchTrainer(Trainer):
                 self._scheduler.step()
                 callbacks_handler.on_scheduler_step_end()
 
-            # End of a epoch callbacks:
+            # End of a epoch loggers:
             if not callbacks_handler.on_epoch_end(epoch=epoch):
                 break
             print()
 
-        # End of run callbacks:
+        # End of run loggers:
         callbacks_handler.on_run_end()
 
     def auto_log(self, context: MLClientCtx):
@@ -184,7 +188,7 @@ class PyTorchTrainer(Trainer):
         for batch, (x, y_true) in progress_bar:
             if batch == self._training_iterations:
                 break
-            # Beginning of a batch callbacks:
+            # Beginning of a batch loggers:
             callbacks_handler.on_train_batch_begin(batch=batch, x=x, y_true=y_true)
             if torch.cuda.is_available():
                 x = x.cuda(non_blocking=True)
@@ -215,7 +219,7 @@ class PyTorchTrainer(Trainer):
             self._optimizer.zero_grad()
             callbacks_handler.on_optimizer_step_end()
 
-            # End of batch callbacks:
+            # End of batch loggers:
             if not callbacks_handler.on_train_batch_end(
                 batch=batch, x=x, y_true=y_true, y_pred=y_pred
             ):
@@ -253,7 +257,7 @@ class PyTorchTrainer(Trainer):
             for batch, (x, y_true) in progress_bar:
                 if batch == self._validation_iterations:
                     break
-                # Beginning of a batch callbacks:
+                # Beginning of a batch loggers:
                 callbacks_handler.on_validation_batch_begin(
                     batch=batch, x=x, y_true=y_true
                 )
@@ -279,7 +283,7 @@ class PyTorchTrainer(Trainer):
                 losses.append(loss_value)
                 metrics.append(metric_values)
 
-                # End of batch callbacks:
+                # End of batch loggers:
                 if not callbacks_handler.on_validation_batch_end(
                     batch=batch, x=x, y_true=y_true, y_pred=y_pred
                 ):

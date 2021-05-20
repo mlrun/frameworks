@@ -1,4 +1,4 @@
-from frameworks.base.evaluator import Evaluator
+from frameworks._common.evaluation.evaluator import Evaluator
 
 
 class KerasEvaluator(Evaluator):

@@ -254,3 +254,12 @@ class Callback(ABC):
         After the scheduler 'step' method is called, this method will be called.
         """
         pass
+
+    def on_call_check(self) -> bool:
+        """
+        Before the loggers handler is calling its loggers, this method will be called to know if this callback
+        should run. For example, in case of multiprocessing, logging should happen only for loggers who are called
+        from worker 0. The worker id check should be done here.
+        :return: True if the call is ok to run and false if not.
+        """
+        return True

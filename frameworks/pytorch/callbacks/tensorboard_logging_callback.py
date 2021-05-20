@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict, Union
+from typing import List, Tuple, Dict, Union, Callable
 import datetime
 import os
 import torch
@@ -8,6 +8,7 @@ from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.tensorboard.summary import hparams
+from frameworks._common.loggers import TensorboardLogger
 from frameworks.pytorch.callbacks.logging_callback import (
     LoggingCallback,
     TrackableType,
@@ -27,6 +28,7 @@ class _MLRunSummaryWriter(SummaryWriter):
     ):
         """
         Log the given hyperparameters to the same event file that is currently open.
+
         :param hparam_dict:            The static hyperparameters to simply log to the 'hparams' table.
         :param metric_dict:            The metrics and dynamic hyper parameters to link with the plots.
         :param hparam_domain_discrete: Not used in this SummaryWriter.
@@ -41,56 +43,184 @@ class _MLRunSummaryWriter(SummaryWriter):
         self._get_file_writer().add_summary(sei)
 
 
+class _PyTorchTensorboardLogger(TensorboardLogger):
+    """
+    The PyTorch framework implementation of the 'TensorboardLogger'.
+    """
+
+    def __init__(
+        self,
+        context: mlrun.MLClientCtx = None,
+        tensorboard_directory: str = None,
+        run_name: str = None,
+    ):
+        """
+        Initialize a tensorboard logger callback with the given configuration. At least one of 'context' and
+        'tensorboard_directory' must be given.
+
+        :param context:                 A mlrun context to use for logging into the user's tensorboard directory.
+        :param tensorboard_directory:   If context is not given, or if wished to set the directory even with context,
+                                        this will be the output for the event logs of tensorboard.
+        :param run_name:                This experiment run name. Each run name will be indexed at the end of the name
+                                        so each experiment will be numbered automatically. If a context was given, the
+                                        context's uid will be added instead of an index. If a run name was not given the
+                                        current time in the following format: 'YYYY-mm-dd_HH:MM:SS'.
+        """
+        super(_PyTorchTensorboardLogger, self).__init__(
+            context=context,
+            tensorboard_directory=tensorboard_directory,
+            run_name=run_name,
+        )
+
+        # Initialize the tensorboard writer:
+        self._summary_writer = _MLRunSummaryWriter(log_dir=self._output_path)
+
+    def log_context_summary_to_tensorboard(self):
+        """
+        Log a summary of this training / validation run to tensorboard.
+        """
+        pass
+
+    def log_parameters_table_to_tensorboard(self):
+        """
+        Log the validation summaries, static and dynamic hyperparameters to the 'HParams' table in tensorboard.
+        """
+        # Check if needed to track hyperparameters:
+        if (
+            len(self._static_hyperparameters) == 0
+            and len(self._dynamic_hyperparameters) == 0
+        ):
+            return
+
+        # Prepare the hyperparameters values:
+        non_graph_parameters = {}
+        for parameter, value in self._static_hyperparameters.items():
+            non_graph_parameters[parameter] = value
+
+        # Prepare the summaries values and the dynamic hyperparameters values:
+        graph_parameters = {}
+        for metric in self._summaries:
+            graph_parameters["{}/{}".format(self._Sections.SUMMARY, metric)] = 0.0
+        for parameter, epochs in self._dynamic_hyperparameters.items():
+            graph_parameters[
+                "{}/{}".format(self._Sections.HYPERPARAMETERS, parameter)
+            ] = epochs[-1]
+
+        # Write the hyperparameters and summaries table:
+        self._summary_writer.add_hparams(non_graph_parameters, graph_parameters)
+
+    def log_training_results_to_tensorboard(self):
+        """
+        Log the recent training iteration metrics results to tensorboard.
+        """
+        for metric, epochs in self._training_results.items():
+            self._summary_writer.add_scalar(
+                tag="{}/{}".format(self._Sections.TRAINING, metric),
+                scalar_value=epochs[-1][-1],
+                global_step=self._training_iterations,
+            )
+
+    def log_validation_results_to_tensorboard(self):
+        """
+        Log the recent validation iteration metrics results to tensorboard.
+        """
+        for metric, epochs in self._validation_results.items():
+            self._summary_writer.add_scalar(
+                tag="{}/{}".format(self._Sections.VALIDATION, metric),
+                scalar_value=epochs[-1][-1],
+                global_step=self._validation_iterations,
+            )
+
+    def log_dynamic_hyperparameters_to_tensorboard(self):
+        """
+        Log the recent epoch dynamic hyperparameters values to tensorboard.
+        """
+        for parameter, epochs in self._dynamic_hyperparameters.items():
+            self._summary_writer.add_scalar(
+                tag="{}/{}".format(self._Sections.HYPERPARAMETERS, parameter),
+                scalar_value=epochs[-1],
+                global_step=self._epochs,
+            )
+
+    def log_summaries_to_tensorboard(self):
+        """
+        Log the recent epoch summaries results to tensorboard.
+        """
+        for parameter, epochs in self._summaries.items():
+            self._summary_writer.add_scalar(
+                tag="{}/{}".format(self._Sections.SUMMARY, parameter),
+                scalar_value=epochs[-1],
+                global_step=self._epochs,
+            )
+
+    def log_weights_histograms_to_tensorboard(self):
+        """
+        Log the current state of the weights as histograms to tensorboard.
+        """
+        for weight_name, weight_parameter in self._weights.items():
+            self._summary_writer.add_histogram(
+                tag="{}/{}".format(self._Sections.WEIGHTS, weight_name),
+                values=weight_parameter,
+                global_step=self._epochs,
+            )
+
+    def log_weights_images_to_tensorboard(self):
+        """
+        Log the current state of the weights as images to tensorboard.
+        """
+        pass
+
+    def log_statistics_to_tensorboard(self):
+        """
+        Log the last stored statistics values this logger collected to tensorboard.
+        """
+        for statistic, weights in self._statistics.items():
+            for weight_name, epoch_values in weights.items():
+                self._summary_writer.add_scalar(
+                    tag="{}/{}:{}".format(
+                        self._Sections.WEIGHTS, weight_name, statistic
+                    ),
+                    scalar_value=epoch_values[-1],
+                    global_step=self._epochs,
+                )
+
+    def log_model_to_tensorboard(self, model: Module, input_sample: Tensor):
+        """
+        Log the given model as a graph in tensorboard.
+        """
+        self._summary_writer.add_graph(
+            model=model,
+            input_to_model=input_sample,
+        )
+
+    def flush(self):
+        """
+        Make sure all values were written to the directory logs so it will be available live.
+        """
+        self._summary_writer.flush()
+
+
 class TensorboardLoggingCallback(LoggingCallback):
     """
-    Callback for logging data during training / validation to tensorboard. Each tracked metrics results will be logged
-    per iteration (batch) and each tracked dynamic hyperparameter and summaries will be logged per epoch. At the end of
-    the run the model will be logged as well. In addition, weights histograms, distributions and statistics will be
-    logged as well per epoch.
+    Callback for logging data during training / evaluation to tensorboard. the available data in tensorboard will be:
 
-    To summerize, the available data in tensorboard will be:
-        * Plots:
-            - Training loss and metrics results per iteration (when used with a trainer).
-            - Validation loss and metrics results per iteration.
-            - Epoch's summaries for loss, metrics and tracked dynamic hyperparameters.
-            - Tracked weights statistics per epoch - STD and Mean.
-        * Tracked weights:
-            - Histograms per epoch.
-            - Distributions per epoch.
-        * Hyperparameters table:
-            - Static hyperparameters.
-            - Dynamic hyperparameters per epoch linked to their plot.
-        * Model's graph.
+    * Summary text of the run with a hyperlink to the MLRun log if it was done.
+    * Hyperparameters tuning table: static hyperparameters, dynamic hyperparameters and epoch validation summaries.
+    * Plots:
+
+      * Per iteration (batch) plot for the training and validation metrics.
+      * Per epoch plot for the dynamic hyperparameters and validation summaries results.
+      * Per epoch weights statistics for each weight and statistic.
+
+    * Histograms per epoch for each of the logged weights.
+    * Distributions per epoch for each of the logged weights.
+    * Images per epoch for each of the logged weights.
+    * Model architecture graph.
 
     All the collected data will be available in this callback post the training / validation process and can be accessed
     via the 'training_results', 'validation_results', 'static_hyperparameters', 'dynamic_hyperparameters', 'summaries',
     'weights', 'weights_mean' and 'weights_std' properties.
     """
-
-    # The default tensorboard directory to be used with a given context:
-    _DEFAULT_TENSORBOARD_DIRECTORY = os.path.join(
-        os.sep, "User", ".tensorboard", "{{project}}"
-    )
-
-    class _Sections:
-        """
-        Tensorboard split his plots to sections via a path like name <SECTION>/<PLOT_NAME>. These are the sections used
-        in this callback for logging.
-        """
-
-        TRAINING = "Training"
-        VALIDATION = "Validation"
-        SUMMARY = "Summary"
-        HYPERPARAMETERS = "Hyperparameters"
-        WEIGHTS = "Weights"
-
-    class _StatisticsTypes:
-        """
-        All of the statistics types calculated each epoch on the tracked weights.
-        """
-
-        MEAN = "Mean"
-        STD = "STD"
 
     def __init__(
         self,
@@ -98,6 +228,9 @@ class TensorboardLoggingCallback(LoggingCallback):
         tensorboard_directory: str = None,
         run_name: str = None,
         weights: Union[bool, List[str]] = False,
+        weights_statistics: List[
+            Callable[[Union[Parameter, Tensor]], Union[float, Tensor]]
+        ] = None,
         dynamic_hyperparameters: Dict[str, Tuple[str, List[Union[str, int]]]] = None,
         static_hyperparameters: Dict[
             str, Union[TrackableType, Tuple[str, List[Union[str, int]]]]
@@ -107,6 +240,7 @@ class TensorboardLoggingCallback(LoggingCallback):
         """
         Initialize a tensorboard logging callback with the given weights, hyperparameters and logging configurations.
         Note that at least one of 'context' and 'tensorboard_directory' must be given.
+
         :param context:                 A mlrun context to use for logging into the user's tensorboard directory.
         :param tensorboard_directory:   If context is not given, or if wished to set the directory even with context,
                                         this will be the output for the event logs of tensorboard.
@@ -119,6 +253,13 @@ class TensorboardLoggingCallback(LoggingCallback):
                                         be searched as 'if <NAME> in <WEIGHT_NAME>' so a simple module name will be
                                         enough to catch his weights. A boolean value can be passed to track all weights.
                                         Defaulted to False.
+        :param weights_statistics:      A list of statistics functions to calculate at the end of each epoch on the
+                                        tracked weights. Only relevant if weights are being tracked. The functions in
+                                        the list must accept one Parameter (or Tensor) and return a float (or float
+                                        convertible) value. The default statistics are 'mean' and 'std'. To get the
+                                        default functions list for appending additional functions you can access it via
+                                        'TensorboardLoggingCallback.get_default_weight_statistics_list()'. To not track
+                                        statistics at all simply pass an empty list '[]'.
         :param dynamic_hyperparameters: If needed to track a hyperparameter dynamically (sample it each epoch) it should
                                         be passed here. The parameter expects a dictionary where the keys are the
                                         hyperparameter chosen names and the values are tuples of object key and a list
@@ -139,6 +280,7 @@ class TensorboardLoggingCallback(LoggingCallback):
                                         }
         :param per_iteration_logging:   Per how many iterations (batches) the callback should log the tracked values.
                                         Defaulted to 1 (meaning every iteration will be logged).
+
         :raise ValueError: In case both 'context' and 'tensorboard_directory' parameters were not given.
         """
         super(TensorboardLoggingCallback, self).__init__(
@@ -146,66 +288,60 @@ class TensorboardLoggingCallback(LoggingCallback):
             static_hyperparameters=static_hyperparameters,
             per_iteration_logging=per_iteration_logging,
         )
+
         # Validate input:
         if context is None and tensorboard_directory is None:
             raise ValueError(
-                "The {} expect to receive a mlrun.MLClientCtx context or a path to a directory to output"
-                "the logging file but None were given.".format(self.__class__)
+                "Expecting to receive a mlrun.MLClientCtx context or a path to a directory to output the logging file "
+                "but None were given.".format(self.__class__)
             )
 
-        # If a run name was not given, take the current timestamp as the run name in the format 'YYYY-mm-dd_HH:MM:SS':
-        if run_name is None:
-            run_name = str(datetime.datetime.now()).split(".")[0].replace(" ", "_")
+        # Replace the logger with an MLRunLogger:
+        del self._logger
+        self._logger = _PyTorchTensorboardLogger(
+            context=context,
+            tensorboard_directory=tensorboard_directory,
+            run_name=run_name,
+        )  # type: _PyTorchTensorboardLogger[Parameter]
 
         # Save the configurations:
         self._tracked_weights = weights
-
-        # Setup the weights dictionaries - a dictionary of all required weight parameters:
-        # [Weight: str] -> [value: Parameter]
-        self._weights = {}  # type: Dict[str, Parameter]
-
-        # Setup the weights statistics dictionaries - dictionaries of statistics for all the required weights per epoch:
-        # [Weight: str] -> [epoch: int] -> [value: float]
-        self._weights_mean = {}  # type: Dict[str, List[float]]
-        self._weights_std = {}  # type: Dict[str, List[float]]
-
-        # Store the context:
-        self._context = context
-
-        # Get the indexed run name and the output path:
-        self._run_name, self._output_path = self._create_output_path(
-            tensorboard_directory=tensorboard_directory, run_name=run_name
+        self._statistics_functions = (
+            weights_statistics
+            if weights_statistics is not None
+            else self.get_default_weight_statistics_list()
         )
-
-        # Initialize the tensorboard writer:
-        self._summary_writer = _MLRunSummaryWriter(log_dir=self._output_path)
 
     @property
     def weights(self) -> Dict[str, Parameter]:
         """
         Get the weights tensors tracked. The weights will be stored in a dictionary where each key is the weight's name
         and the value is the weight's parameter (tensor).
+
         :return: The weights.
         """
-        return self._weights
+        return self._logger.weights
 
     @property
-    def weights_mean(self) -> Dict[str, List[float]]:
+    def weights_statistics(self) -> Dict[str, List[float]]:
         """
         Get the weights mean results logged. The results will be stored in a dictionary where each key is the weight's
         name and the value is a list of mean values per epoch.
+
         :return: The weights mean results.
         """
-        return self._weights_mean
+        return self._logger.statistics
 
-    @property
-    def weights_std(self) -> Dict[str, List[float]]:
+    @staticmethod
+    def get_default_weight_statistics_list() -> List[
+        Callable[[Union[Parameter, Tensor]], Union[float, Tensor]]
+    ]:
         """
-        Get the weights std results logged. The results will be stored in a dictionary where each key is the weight's
-        name and the value is a list of std values per epoch.
-        :return: The weights std results.
+        Get the default list of statistics functions being applied on the tracked weights each epoch.
+
+        :return: The default statistics functions list.
         """
-        return self._weights_std
+        return [torch.mean, torch.std]
 
     def on_setup(
         self,
@@ -220,6 +356,7 @@ class TensorboardLoggingCallback(LoggingCallback):
         """
         Storing all the given objects in the callback's objects dictionary and load the weights parameters as given in
         the callback's initialization.
+
         :param model:            The model to be stored in this callback.
         :param training_set:     The training set to be stored in this callback.
         :param validation_set:   The validation set to be stored in this callback.
@@ -238,26 +375,31 @@ class TensorboardLoggingCallback(LoggingCallback):
             scheduler=scheduler,
         )
 
+        # Log the summary meta data of the run:
+        self._logger.log_context_summary_to_tensorboard()
+
         # Collect the weights for drawing histograms according to the stored configuration:
         if self._tracked_weights is False:
             return
+
+        # Log the statistics functions:
+        for statistic_function in self._statistics_functions:
+            self._logger.log_statistic(statistic_name=statistic_function.__name__)
+
+        # Log the weights:
         for weight_name, weight_parameter in self._objects[
             self._ObjectKeys.MODEL
         ].named_parameters():
             if self._tracked_weights is True:  # Collect all weights
-                self._weights[weight_name] = weight_parameter
-                self._weights_mean[weight_name] = [float(torch.mean(weight_parameter))]
-                self._weights_std[weight_name] = [float(torch.std(weight_parameter))]
+                self._logger.log_weight(
+                    weight_name=weight_name, weight_holder=weight_parameter
+                )
                 continue
             for tag in self._tracked_weights:  # Collect by given name
                 if tag in weight_name:
-                    self._weights[weight_name] = weight_parameter
-                    self._weights_mean[weight_name] = [
-                        float(torch.mean(weight_parameter))
-                    ]
-                    self._weights_std[weight_name] = [
-                        float(torch.std(weight_parameter))
-                    ]
+                    self._logger.log_weight(
+                        weight_name=weight_name, weight_holder=weight_parameter
+                    )
                     break
 
     def on_run_begin(self):
@@ -268,71 +410,28 @@ class TensorboardLoggingCallback(LoggingCallback):
         # Setup all the results and hyperparameters dictionaries:
         super(TensorboardLoggingCallback, self).on_run_begin()
 
-        # Check if needed to track hyperparameters:
-        if not(
-            len(self._static_hyperparameters) == 0
-            and len(self._dynamic_hyperparameters) == 0
-        ):
-            # Prepare the hyperparameters values:
-            non_graph_parameters = {}
-            for parameter, value in self._static_hyperparameters.items():
-                non_graph_parameters[parameter] = value
+        # Log hyperparameters:
+        self._logger.log_parameters_table_to_tensorboard()
+        self._logger.log_dynamic_hyperparameters_to_tensorboard()
 
-            # Prepare the summaries values and the dynamic hyperparameters values:
-            graph_parameters = {}
-            for metric in self._summaries:
-                graph_parameters["{}/{}".format(self._Sections.SUMMARY, metric)] = 0.0
-            for parameter, epochs in self._dynamic_hyperparameters.items():
-                graph_parameters[
-                    "{}/{}".format(self._Sections.HYPERPARAMETERS, parameter)
-                ] = epochs[-1]
-
-            # Write the hyperparameters and summaries table:
-            self._summary_writer.add_hparams(non_graph_parameters, graph_parameters)
-
-            # Add initial dynamic hyperparameters values (epoch 0) to their graphs:
-            for parameter, epochs in self._dynamic_hyperparameters.items():
-                self._summary_writer.add_scalar(
-                    tag="{}/{}".format(self._Sections.HYPERPARAMETERS, parameter),
-                    scalar_value=epochs[-1],
-                    global_step=0,
-                )
-
-        # Draw the initial weights (epoch 0) graphs:
-        for weight_name, weight_parameter in self._weights.items():
-            # Draw histogram:
-            self._summary_writer.add_histogram(
-                tag="{}/{}".format(self._Sections.WEIGHTS, weight_name),
-                values=weight_parameter,
-                global_step=0,
-            )
-            # Add Mean value:
-            self._summary_writer.add_scalar(
-                tag="{}/{}:{}".format(
-                    self._Sections.WEIGHTS, weight_name, self._StatisticsTypes.MEAN
-                ),
-                scalar_value=self._weights_mean[weight_name][-1],
-                global_step=0,
-            )
-            # Add Standard-deviation value:
-            self._summary_writer.add_scalar(
-                tag="{}/{}:{}".format(
-                    self._Sections.WEIGHTS, weight_name, self._StatisticsTypes.STD
-                ),
-                scalar_value=self._weights_std[weight_name][-1],
-                global_step=0,
-            )
+        # Log the initial weights:
+        self._logger.log_weights_histograms_to_tensorboard()
+        self._logger.log_weights_images_to_tensorboard()
+        self._calculate_statistics()
+        self._logger.log_statistics_to_tensorboard()
 
     def on_run_end(self):
         """
         Before the trainer / evaluator run ends, this method will be called to log the model's graph.
         """
+        super(TensorboardLoggingCallback, self).on_run_end()
+
         # Store the trained model:
-        self._summary_writer.add_graph(
+        self._logger.log_model_to_tensorboard(
             model=self._objects[self._ObjectKeys.MODEL],
-            input_to_model=next(
-                self._objects[self._ObjectKeys.TRAINING_SET].__iter__()
-            )[0],
+            input_sample=next(self._objects[self._ObjectKeys.TRAINING_SET].__iter__())[
+                0
+            ],
         )
 
     def on_epoch_end(self, epoch: int):
@@ -340,80 +439,42 @@ class TensorboardLoggingCallback(LoggingCallback):
         Before the trainer given epoch ends, this method will be called to log the dynamic hyperparameters as needed.
         All of the per epoch plots (loss and metrics summaries, dynamic hyperparameters, weights histograms and
         statistics) will log this epoch's tracked values.
+
         :param epoch: The epoch that has just ended.
         """
         super(TensorboardLoggingCallback, self).on_epoch_end(epoch=epoch)
 
         # Add this epoch loss and metrics averages to their graphs:
-        for parameter, epochs in self._summaries.items():
-            self._summary_writer.add_scalar(
-                tag="{}/{}".format(self._Sections.SUMMARY, parameter),
-                scalar_value=epochs[-1],
-                global_step=self._epochs,
-            )
+        self._logger.log_summaries_to_tensorboard()
 
         # Add this epoch dynamic hyperparameters values to their graphs:
-        for parameter, epochs in self._dynamic_hyperparameters.items():
-            self._summary_writer.add_scalar(
-                tag="{}/{}".format(self._Sections.HYPERPARAMETERS, parameter),
-                scalar_value=epochs[-1],
-                global_step=self._epochs,
-            )
+        self._logger.log_dynamic_hyperparameters_to_tensorboard()
 
-        # Add weight histograms and statistics for all the tracked weights:
-        for weight_name, weight_parameter in self._weights.items():
-            # Draw histogram:
-            self._summary_writer.add_histogram(
-                tag="{}/{}".format(self._Sections.WEIGHTS, weight_name),
-                values=weight_parameter,
-                global_step=self._epochs,
-            )
-            # Add Mean value:
-            self._weights_mean[weight_name].append(float(torch.mean(weight_parameter)))
-            self._summary_writer.add_scalar(
-                "{}/{}:{}".format(
-                    self._Sections.WEIGHTS, weight_name, self._StatisticsTypes.MEAN
-                ),
-                scalar_value=self._weights_mean[weight_name][-1],
-                global_step=self._epochs,
-            )
-            # Add STD value:
-            self._weights_std[weight_name].append(float(torch.std(weight_parameter)))
-            self._summary_writer.add_scalar(
-                "{}/{}:{}".format(
-                    self._Sections.WEIGHTS, weight_name, self._StatisticsTypes.STD
-                ),
-                scalar_value=self._weights_std[weight_name][-1],
-                global_step=self._epochs,
-            )
+        # Add weight histograms, images and statistics for all the tracked weights:
+        self._logger.log_weights_histograms_to_tensorboard()
+        self._logger.log_weights_images_to_tensorboard()
+        self._calculate_statistics()
+        self._logger.log_statistics_to_tensorboard()
 
         # Make sure all values were written to the directory logs:
-        self._summary_writer.flush()
+        self._logger.flush()
 
     def on_train_batch_end(self, batch: int, x: Tensor, y_true: Tensor, y_pred: Tensor):
         """
         Before the trainer training of the given batch ends, this method will be called to log the batch's loss and
         metrics results to their per iteration plots.
+
         :param batch:  The current batch iteration of when this method is called.
         :param x:      The input part of the current batch.
         :param y_true: The true value part of the current batch.
         :param y_pred: The prediction (output) of the model for this batch's input ('x').
         """
-        # Check if Tensorboard is needed:
-        if not self._summary_writer:
-            return
-
-        # Add this batch loss and metrics results to their graphs:
-        for parameter, epochs in self._training_results.items():
-            self._summary_writer.add_scalar(
-                tag="{}/{}".format(self._Sections.TRAINING, parameter),
-                scalar_value=epochs[-1][-1],
-                global_step=self._train_iterations,
-            )
-
         super(TensorboardLoggingCallback, self).on_train_batch_end(
             batch=batch, x=x, y_true=y_true, y_pred=y_pred
         )
+
+        # Add this batch loss and metrics results to their graphs:
+        self._logger.log_training_results_to_tensorboard()
 
     def on_validation_batch_end(
         self, batch: int, x: Tensor, y_true: Tensor, y_pred: Tensor
@@ -421,68 +482,27 @@ class TensorboardLoggingCallback(LoggingCallback):
         """
         Before the trainer / evaluator validation of the given batch ends, this method will be called to log the batch's
         loss and metrics results to their per iteration plots.
+
         :param batch:  The current batch iteration of when this method is called.
         :param x:      The input part of the current batch.
         :param y_true: The true value part of the current batch.
         :param y_pred: The prediction (output) of the model for this batch's input ('x').
         """
-        # Check if Tensorboard is needed:
-        if not self._summary_writer:
-            return
-
-        # Add this batch loss and metrics results to their graphs:
-        for parameter, epochs in self._validation_results.items():
-            self._summary_writer.add_scalar(
-                tag="{}/{}".format(self._Sections.VALIDATION, parameter),
-                scalar_value=epochs[-1][-1],
-                global_step=self._validation_iterations,
-            )
-
-        # Count the iteration:
         super(TensorboardLoggingCallback, self).on_validation_batch_end(
             batch=batch, x=x, y_true=y_true, y_pred=y_pred
         )
 
-    def _create_output_path(
-        self, tensorboard_directory: str, run_name: str
-    ) -> Tuple[str, str]:
+        # Add this batch loss and metrics results to their graphs:
+        self._logger.log_validation_results_to_tensorboard()
+
+    def _calculate_statistics(self):
         """
-        Create the output path, indexing the given run name as needed.
-        :param tensorboard_directory: The output directory for the event files to be logged to. In case a context was
-                                      given this value can be 'None' so it will save to the user's default directory.
-        :param run_name:              The run name to be indexed if needed. If a context was given, the run name will
-                                      include the context's uid.
-        :return: A tuple of:
-                 [0] = Indexed run name.
-                 [1] = The full output path.
+        Run the statistics functions on the tracked weights and log the values.
         """
-        # Check if a context is available:
-        if self._context:
-            # Try to get the 'tensorboard_dir' parameter:
-            tensorboard_directory = self._context.get_param("tensorboard_dir")
-            if tensorboard_directory is None:
-                # The parameter was not given, set the directory to the default value:
-                tensorboard_directory = self._DEFAULT_TENSORBOARD_DIRECTORY.replace(
-                    "{{project}}", self._context.project
+        for weight_name, weight_parameter in self._logger.weights.items():
+            for statistic_function in self._statistics_functions:
+                self._logger.log_statistic_value(
+                    statistic_name=statistic_function.__name__,
+                    weight_name=weight_name,
+                    value=float(statistic_function(weight_parameter)),
                 )
-            # Build the full run name:
-            full_run_name = "{}_{}".format(run_name, self._context.uid)
-        else:
-            # Create the main tensorboard directory:
-            os.makedirs(tensorboard_directory, exist_ok=True)
-            # Index the run name according to the tensorboard directory content:
-            index = 1
-            for run_directory in sorted(os.listdir(tensorboard_directory)):
-                existing_run = run_directory.rsplit(
-                    "_", 1
-                )  # type: List[str] # [0] = name, [1] = index
-                if run_name == existing_run[0]:
-                    index = int(existing_run[1]) + 1
-            # Build the full run name:
-            full_run_name = "{}_{}".format(run_name, index)
-
-        # Create the output path:
-        output_path = os.path.join(tensorboard_directory, full_run_name)
-        os.makedirs(output_path)
-
-        return full_run_name, output_path

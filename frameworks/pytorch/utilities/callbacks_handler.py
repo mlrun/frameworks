@@ -12,7 +12,7 @@ from frameworks.pytorch.callbacks.callback import (
 
 class _CallbackInterface:
     """
-    An interface of all the methods every callback must implement for dynamically calling the methods from the callbacks
+    An interface of all the methods every callback must implement for dynamically calling the methods from the loggers
     handler.
     """
 
@@ -43,23 +43,24 @@ class _CallbackInterface:
     ON_OPTIMIZER_STEP_END = "on_optimizer_step_end"
     ON_SCHEDULER_STEP_BEGIN = "on_scheduler_step_begin"
     ON_SCHEDULER_STEP_END = "on_scheduler_step_end"
+    ON_CALL_CHECK = "on_call_check"
 
 
 class CallbacksHandler:
     """
-    A class for handling multiple callbacks during a run.
+    A class for handling multiple loggers during a run.
     """
 
     def __init__(self, callbacks: List[Union[Callback, Tuple[str, Callback]]]):
         """
-        Initialize the callbacks handler with the given callbacks he will handle. The callbacks can be passed as their
+        Initialize the loggers handler with the given loggers he will handle. The loggers can be passed as their
         initialized instances or as a tuple where [0] is a name that will be attached to him and [1] will be the
         initialized callback instance. Notice that if a callback was given without a name, his name to refer will be
         his class name.
-        :param callbacks: The callbacks to handle.
-        :raise KeyError: In case of duplicating callbacks names.
+        :param callbacks: The loggers to handle.
+        :raise KeyError: In case of duplicating loggers names.
         """
-        # Initialize the callbacks dictionary:
+        # Initialize the loggers dictionary:
         self._callbacks = {}  # type: Dict[str, Callback]
 
         # Add the given callback to the dictionary:
@@ -69,7 +70,7 @@ class CallbacksHandler:
                 if callback[0] in self._callbacks:
                     raise KeyError(
                         "A callback with the name '{}' "
-                        "is already exist in the callbacks handler.".format(callback[0])
+                        "is already exist in the loggers handler.".format(callback[0])
                     )
                 self._callbacks[callback[0]] = callback[1]
             else:
@@ -77,7 +78,7 @@ class CallbacksHandler:
                 if callback.__class__.__name__ in self._callbacks:
                     raise KeyError(
                         "A callback with the name '{}' "
-                        "is already exist in the callbacks handler.".format(
+                        "is already exist in the loggers handler.".format(
                             callback.__class__.__name__
                         )
                     )
@@ -86,8 +87,8 @@ class CallbacksHandler:
     @property
     def callbacks(self) -> Dict[str, Callback]:
         """
-        Get the callbacks dictionary handled by this handler.
-        :return: The callbacks dictionary.
+        Get the loggers dictionary handled by this handler.
+        :return: The loggers dictionary.
         """
         return self._callbacks
 
@@ -103,8 +104,8 @@ class CallbacksHandler:
         callbacks: List[str] = None,
     ) -> bool:
         """
-        Call the 'on_setup' method of every callback in the callbacks list. If the list is 'None' (not given), all
-        callbacks will be called.
+        Call the 'on_setup' method of every callback in the loggers list. If the list is 'None' (not given), all
+        loggers will be called.
         :param model:            The model to pass to the method.
         :param training_set:     The training set to pass to the method.
         :param validation_set:   The validation set to pass to the method.
@@ -112,8 +113,8 @@ class CallbacksHandler:
         :param optimizer:        The optimizer to pass to the method.
         :param metric_functions: The metric functions to pass to the method.
         :param scheduler:        The scheduler to pass to the method.
-        :param callbacks:        The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        :param callbacks:        The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_SETUP,
@@ -129,10 +130,10 @@ class CallbacksHandler:
 
     def on_run_begin(self, callbacks: List[str] = None) -> bool:
         """
-        Call the 'on_run_begin' method of every callback in the callbacks list. If the list is 'None' (not given), all
-        callbacks will be called.
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        Call the 'on_run_begin' method of every callback in the loggers list. If the list is 'None' (not given), all
+        loggers will be called.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_RUN_BEGIN,
@@ -141,10 +142,10 @@ class CallbacksHandler:
 
     def on_run_end(self, callbacks: List[str] = None) -> bool:
         """
-        Call the 'on_run_end' method of every callback in the callbacks list. If the list is 'None' (not given), all
-        callbacks will be called.
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        Call the 'on_run_end' method of every callback in the loggers list. If the list is 'None' (not given), all
+        loggers will be called.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_RUN_END,
@@ -153,11 +154,11 @@ class CallbacksHandler:
 
     def on_epoch_begin(self, epoch: int, callbacks: List[str] = None) -> bool:
         """
-        Call the 'on_epoch_begin' method of every callback in the callbacks list. If the list is 'None' (not given), all
-        callbacks will be called.
+        Call the 'on_epoch_begin' method of every callback in the loggers list. If the list is 'None' (not given), all
+        loggers will be called.
         :param epoch:     The current epoch iteration of when this method is called.
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_EPOCH_BEGIN,
@@ -167,11 +168,11 @@ class CallbacksHandler:
 
     def on_epoch_end(self, epoch: int, callbacks: List[str] = None) -> bool:
         """
-        Call the 'on_epoch_end' method of every callback in the callbacks list. If the list is 'None' (not given), all
-        callbacks will be called.
+        Call the 'on_epoch_end' method of every callback in the loggers list. If the list is 'None' (not given), all
+        loggers will be called.
         :param epoch:     The current epoch iteration of when this method is called.
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_EPOCH_END,
@@ -181,10 +182,10 @@ class CallbacksHandler:
 
     def on_train_begin(self, callbacks: List[str] = None) -> bool:
         """
-        Call the 'on_train_begin' method of every callback in the callbacks list. If the list is 'None' (not given), all
-        callbacks will be called.
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        Call the 'on_train_begin' method of every callback in the loggers list. If the list is 'None' (not given), all
+        loggers will be called.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_TRAIN_BEGIN,
@@ -193,10 +194,10 @@ class CallbacksHandler:
 
     def on_train_end(self, callbacks: List[str] = None) -> bool:
         """
-        Call the 'on_train_end' method of every callback in the callbacks list. If the list is 'None' (not given), all
-        callbacks will be called.
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        Call the 'on_train_end' method of every callback in the loggers list. If the list is 'None' (not given), all
+        loggers will be called.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_TRAIN_END,
@@ -205,10 +206,10 @@ class CallbacksHandler:
 
     def on_validation_begin(self, callbacks: List[str] = None) -> bool:
         """
-        Call the 'on_validation_begin' method of every callback in the callbacks list. If the list is 'None'
-        (not given), all callbacks will be called.
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        Call the 'on_validation_begin' method of every callback in the loggers list. If the list is 'None'
+        (not given), all loggers will be called.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_VALIDATION_BEGIN,
@@ -222,12 +223,12 @@ class CallbacksHandler:
         callbacks: List[str] = None,
     ) -> bool:
         """
-        Call the 'on_validation_end' method of every callback in the callbacks list. If the list is 'None' (not given),
-        all callbacks will be called.
+        Call the 'on_validation_end' method of every callback in the loggers list. If the list is 'None' (not given),
+        all loggers will be called.
         :param loss_value:    The loss summary of this validation.
         :param metric_values: The metrics summaries of this validation.
-        :param callbacks:     The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        :param callbacks:     The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_VALIDATION_END,
@@ -240,13 +241,13 @@ class CallbacksHandler:
         self, batch: int, x: Tensor, y_true: Tensor, callbacks: List[str] = None
     ) -> bool:
         """
-        Call the 'on_train_batch_begin' method of every callback in the callbacks list. If the list is 'None'
-        (not given), all callbacks will be called.
+        Call the 'on_train_batch_begin' method of every callback in the loggers list. If the list is 'None'
+        (not given), all loggers will be called.
         :param batch:     The current batch iteration of when this method is called.
         :param x:         The input part of the current batch.
         :param y_true:    The true value part of the current batch.
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_TRAIN_BATCH_BEGIN,
@@ -265,14 +266,14 @@ class CallbacksHandler:
         callbacks: List[str] = None,
     ) -> bool:
         """
-        Call the 'on_train_batch_end' method of every callback in the callbacks list. If the list is 'None' (not given),
-        all callbacks will be called.
+        Call the 'on_train_batch_end' method of every callback in the loggers list. If the list is 'None' (not given),
+        all loggers will be called.
         :param batch:     The current batch iteration of when this method is called.
         :param x:         The input part of the current batch.
         :param y_true:    The true value part of the current batch.
         :param y_pred:    The prediction (output) of the model for this batch's input ('x').
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_TRAIN_BATCH_END,
@@ -287,13 +288,13 @@ class CallbacksHandler:
         self, batch: int, x: Tensor, y_true: Tensor, callbacks: List[str] = None
     ) -> bool:
         """
-        Call the 'on_validation_batch_begin' method of every callback in the callbacks list. If the list is 'None'
-        (not given), all callbacks will be called.
+        Call the 'on_validation_batch_begin' method of every callback in the loggers list. If the list is 'None'
+        (not given), all loggers will be called.
         :param batch:     The current batch iteration of when this method is called.
         :param x:         The input part of the current batch.
         :param y_true:    The true value part of the current batch.
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_VALIDATION_BATCH_BEGIN,
@@ -312,14 +313,14 @@ class CallbacksHandler:
         callbacks: List[str] = None,
     ) -> bool:
         """
-        Call the 'on_validation_batch_end' method of every callback in the callbacks list. If the list is 'None'
-        (not given), all callbacks will be called.
+        Call the 'on_validation_batch_end' method of every callback in the loggers list. If the list is 'None'
+        (not given), all loggers will be called.
         :param batch:     The current batch iteration of when this method is called.
         :param x:         The input part of the current batch.
         :param y_true:    The true value part of the current batch.
         :param y_pred:    The prediction (output) of the model for this batch's input ('x').
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_VALIDATION_BATCH_END,
@@ -332,10 +333,10 @@ class CallbacksHandler:
 
     def on_train_loss_begin(self, callbacks: List[str] = None) -> bool:
         """
-        Call the 'on_train_loss_begin' method of every callback in the callbacks list. If the list is 'None'
-        (not given), all callbacks will be called.
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        Call the 'on_train_loss_begin' method of every callback in the loggers list. If the list is 'None'
+        (not given), all loggers will be called.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_TRAIN_LOSS_BEGIN,
@@ -346,11 +347,11 @@ class CallbacksHandler:
         self, loss_value: MetricValueType, callbacks: List[str] = None
     ) -> bool:
         """
-        Call the 'on_train_loss_end' method of every callback in the callbacks list. If the list is 'None' (not given),
-        all callbacks will be called.
+        Call the 'on_train_loss_end' method of every callback in the loggers list. If the list is 'None' (not given),
+        all loggers will be called.
         :param loss_value: The recent loss value calculated during training.
-        :param callbacks:  The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        :param callbacks:  The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_TRAIN_LOSS_END,
@@ -360,10 +361,10 @@ class CallbacksHandler:
 
     def on_validation_loss_begin(self, callbacks: List[str] = None) -> bool:
         """
-        Call the 'on_validation_loss_begin' method of every callback in the callbacks list. If the list is 'None'
-        (not given), all callbacks will be called.
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        Call the 'on_validation_loss_begin' method of every callback in the loggers list. If the list is 'None'
+        (not given), all loggers will be called.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_VALIDATION_LOSS_BEGIN,
@@ -374,11 +375,11 @@ class CallbacksHandler:
         self, loss_value: MetricValueType, callbacks: List[str] = None
     ) -> bool:
         """
-        Call the 'on_validation_loss_end' method of every callback in the callbacks list. If the list is 'None'
-        (not given), all callbacks will be called.
+        Call the 'on_validation_loss_end' method of every callback in the loggers list. If the list is 'None'
+        (not given), all loggers will be called.
         :param loss_value: The recent loss value calculated during validation.
-        :param callbacks:  The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        :param callbacks:  The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_VALIDATION_LOSS_END,
@@ -388,10 +389,10 @@ class CallbacksHandler:
 
     def on_train_metrics_begin(self, callbacks: List[str] = None) -> bool:
         """
-        Call the 'on_train_metrics_begin' method of every callback in the callbacks list. If the list is 'None'
-        (not given), all callbacks will be called.
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        Call the 'on_train_metrics_begin' method of every callback in the loggers list. If the list is 'None'
+        (not given), all loggers will be called.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_TRAIN_METRICS_BEGIN,
@@ -402,11 +403,11 @@ class CallbacksHandler:
         self, metric_values: List[MetricValueType], callbacks: List[str] = None
     ) -> bool:
         """
-        Call the 'on_train_metrics_end' method of every callback in the callbacks list. If the list is 'None'
-        (not given), all callbacks will be called.
+        Call the 'on_train_metrics_end' method of every callback in the loggers list. If the list is 'None'
+        (not given), all loggers will be called.
         :param metric_values: The recent metric values calculated during training.
-        :param callbacks:     The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        :param callbacks:     The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_TRAIN_METRICS_END,
@@ -416,10 +417,10 @@ class CallbacksHandler:
 
     def on_validation_metrics_begin(self, callbacks: List[str] = None) -> bool:
         """
-        Call the 'on_validation_metrics_begin' method of every callback in the callbacks list. If the list is 'None'
-        (not given), all callbacks will be called.
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        Call the 'on_validation_metrics_begin' method of every callback in the loggers list. If the list is 'None'
+        (not given), all loggers will be called.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_VALIDATION_METRICS_BEGIN,
@@ -430,11 +431,11 @@ class CallbacksHandler:
         self, metric_values: List[MetricValueType], callbacks: List[str] = None
     ) -> bool:
         """
-        Call the 'on_validation_metrics_end' method of every callback in the callbacks list. If the list is 'None'
-        (not given), all callbacks will be called.
+        Call the 'on_validation_metrics_end' method of every callback in the loggers list. If the list is 'None'
+        (not given), all loggers will be called.
         :param metric_values: The recent metric values calculated during validation.
-        :param callbacks:     The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        :param callbacks:     The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_VALIDATION_METRICS_END,
@@ -444,10 +445,10 @@ class CallbacksHandler:
 
     def on_backward_begin(self, callbacks: List[str] = None) -> bool:
         """
-        Call the 'on_backward_begin' method of every callback in the callbacks list. If the list is 'None' (not given),
-        all callbacks will be called.
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        Call the 'on_backward_begin' method of every callback in the loggers list. If the list is 'None' (not given),
+        all loggers will be called.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_BACKWARD_BEGIN,
@@ -456,10 +457,10 @@ class CallbacksHandler:
 
     def on_backward_end(self, callbacks: List[str] = None) -> bool:
         """
-        Call the 'on_backward_end' method of every callback in the callbacks list. If the list is 'None' (not given),
-        all callbacks will be called.
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        Call the 'on_backward_end' method of every callback in the loggers list. If the list is 'None' (not given),
+        all loggers will be called.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_BACKWARD_END,
@@ -468,10 +469,10 @@ class CallbacksHandler:
 
     def on_optimizer_step_begin(self, callbacks: List[str] = None) -> bool:
         """
-        Call the 'on_optimizer_step_begin' method of every callback in the callbacks list. If the list is 'None'
-        (not given), all callbacks will be called.
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        Call the 'on_optimizer_step_begin' method of every callback in the loggers list. If the list is 'None'
+        (not given), all loggers will be called.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_OPTIMIZER_STEP_BEGIN,
@@ -480,10 +481,10 @@ class CallbacksHandler:
 
     def on_optimizer_step_end(self, callbacks: List[str] = None) -> bool:
         """
-        Call the 'on_optimizer_step_end' method of every callback in the callbacks list. If the list is 'None'
-        (not given), all callbacks will be called.
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        Call the 'on_optimizer_step_end' method of every callback in the loggers list. If the list is 'None'
+        (not given), all loggers will be called.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_OPTIMIZER_STEP_END,
@@ -492,10 +493,10 @@ class CallbacksHandler:
 
     def on_scheduler_step_begin(self, callbacks: List[str] = None) -> bool:
         """
-        Call the 'on_scheduler_step_begin' method of every callback in the callbacks list. If the list is 'None'
-        (not given), all callbacks will be called.
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        Call the 'on_scheduler_step_begin' method of every callback in the loggers list. If the list is 'None'
+        (not given), all loggers will be called.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_SCHEDULER_STEP_BEGIN,
@@ -504,10 +505,10 @@ class CallbacksHandler:
 
     def on_scheduler_step_end(self, callbacks: List[str] = None) -> bool:
         """
-        Call the 'on_scheduler_step_end' method of every callback in the callbacks list. If the list is 'None'
-        (not given), all callbacks will be called.
-        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        :return: True if all of the callbacks called returned True and False if not.
+        Call the 'on_scheduler_step_end' method of every callback in the loggers list. If the list is 'None'
+        (not given), all loggers will be called.
+        :param callbacks: The loggers names to use. If 'None', all of the loggers will be used.
+        :return: True if all of the loggers called returned True and False if not.
         """
         return self._run_callbacks(
             method_name=_CallbackInterface.ON_SCHEDULER_STEP_END,
@@ -516,11 +517,11 @@ class CallbacksHandler:
 
     def _parse_names(self, names: Union[List[str], None]) -> List[str]:
         """
-        Parse the given callbacks names. If they are not 'None' then the names will be returned as they are, otherwise
-        all of the callbacks handled by this handler will be returned (the default behavior of when there were no names
+        Parse the given loggers names. If they are not 'None' then the names will be returned as they are, otherwise
+        all of the loggers handled by this handler will be returned (the default behavior of when there were no names
         given to one of the handler's methods).
         :param names: A list of names to parse, can be 'None'.
-        :return: The given names if they were not 'None', otherwise the names of all the callbacks in this handler.
+        :return: The given names if they were not 'None', otherwise the names of all the loggers in this handler.
         """
         if names:
             return names
@@ -530,15 +531,16 @@ class CallbacksHandler:
         self, method_name: str, callbacks: List[str], *args, **kwargs
     ) -> bool:
         """
-        Run the given method from the 'CallbackInterface' on all the specified callbacks with the given arguments.
+        Run the given method from the 'CallbackInterface' on all the specified loggers with the given arguments.
         :param method_name: The name of the method to run. Should be given from the 'CallbackInterface'.
-        :param callbacks:   List of all the callbacks names to run the method.
-        :return: True if all of the callbacks called returned True and False if not.
+        :param callbacks:   List of all the loggers names to run the method.
+        :return: True if all of the loggers called returned True and False if not.
         """
         all_result = True
         for callback in callbacks:
-            method = getattr(self._callbacks[callback], method_name)
-            result = method(*args, **kwargs)
-            if result:
-                all_result &= result
+            if self._callbacks[callback].on_call_check():
+                method = getattr(self._callbacks[callback], method_name)
+                result = method(*args, **kwargs)
+                if result:
+                    all_result &= result
         return all_result
