@@ -1,26 +1,25 @@
-from typing import Union, List, Dict, Tuple
-import os
+from typing import Union, List, Dict
 import mlrun
-from mlrun.artifacts import ChartArtifact
-from frameworks.keras.callbacks.logging_callback import LoggingCallback, TrackableType
+from frameworks._common.loggers import MLRunLogger, TrackableType
+from frameworks.keras.callbacks.logging_callback import LoggingCallback
+from frameworks.keras.utilities.model_handler import KerasModelHandler
 
 
 class MLRunLoggingCallback(LoggingCallback):
     """
     Callback for logging data during training / validation via mlrun's context. Each tracked hyperparameter and metrics
     results will be logged per epoch and at the end of the run the model will be saved and logged as well. Some plots
-    will be available as well.
+    will be available as well. To summerize, the available data in mlrun will be:
 
-    To summerize, the available data in mlrun will be:
-        * Plot artifacts:
-            - Summaries for loss, metrics per epoch.
-            - Dynamic hyperparameters per epoch.
-        * Results table:
-            - Summaries for loss, metrics per epoch.
-            - Dynamic hyperparameters per epoch.
-        * Model:
-            - Model files stored in the project's directory.
-            - A model log page linked to all of his artifacts.
+    * For each epoch:
+
+      * Tracking table: epoch, static hyperparameters, dynamic hyperparameters, training metrics, validation metrics.
+      * Per iteration (batch) chart artifacts for the training and validation metrics.
+
+    * At the end of the run:
+
+      * Per epoch chart artifacts for the validation summaries and dynamic hyperparameters.
+      * Model is logged with all of the files and artifacts.
 
     All the collected data will be available in this callback post the training / validation process and can be accessed
     via the 'training_results', 'validation_results', 'static_hyperparameters', 'dynamic_hyperparameters' and
@@ -38,6 +37,7 @@ class MLRunLoggingCallback(LoggingCallback):
     ):
         """
         Initialize an mlrun logging callback with the given hyperparameters and logging configurations.
+
         :param context:                 The mlrun context to log with.
         :param dynamic_hyperparameters: If needed to track a hyperparameter dynamically (sample it each epoch) it should
                                         be passed here. The parameter expects a dictionary where the keys are the
@@ -64,75 +64,19 @@ class MLRunLoggingCallback(LoggingCallback):
             per_iteration_logging=per_iteration_logging,
         )
 
-        # Store the context:
-        self._context = context
+        # Replace the logger with an MLRunLogger:
+        del self._logger
+        self._logger = MLRunLogger(context=context)
 
     def on_train_end(self, logs: dict = None):
-        # Save the model:
-        # self.model.save(os.path.join(artifact_path, self.model.name))
-        # model_directory_artifact = self._context.log_artifact(
-        #     "model-directory",
-        #     local_path=self.model.name,
-        #     artifact_path=artifact_path,
-        #     db_key=False,
-        # )
-        self.model.save("{}.h5".format(self.model.name))
-
-        # Save weights
-        self.model.save_weights("{}-weights.h5".format(self.model.name))
-        weights_artifact = self._context.log_artifact(
-            "{}-weights".format(self.model.name),
-            local_path="{}-weights.h5".format(self.model.name),
-            artifact_path=self._context.artifact_path,
-            db_key=False,
-        )
-
-        # Produce training chart artifact
-        chart_name = "summary.html"
-        chart_artifact = ChartArtifact(chart_name)
-        chart_artifact.header = (
-            ["epoch"]
-            + list(self._static_hyperparameters.keys())
-            + list(self._dynamic_hyperparameters.keys())
-            + list(self._summaries.keys())
-        )
-        for i in range(self._epochs + 1):
-            row = [i]
-            for value in self._static_hyperparameters.values():
-                row.append(value)
-            for epoch_values in self._dynamic_hyperparameters.values():
-                row.append(epoch_values[i])
-            for epoch_values in self._summaries.values():
-                if i == 0:
-                    row.append(0)
-                else:
-                    row.append(epoch_values[i - 1])
-            chart_artifact.add_row(row=row)
-        summary_artifact = self._context.log_artifact(
-            chart_artifact,
-            local_path=chart_name,
-            artifact_path=self._context.artifact_path,
-        )
-
-        # Log the model as a `model` artifact in MLRun:
-        self._context.log_model(
-            "model",
-            artifact_path=self._context.artifact_path,
-            model_file="{}.h5".format(self.model.name),
-            labels={"framework": 'tensorflow.keras'},
-            framework='tensorflow.keras',
-            metrics=self._context.results,
-            extra_data={
-                "training-summary": summary_artifact,
-                "model-architecture.json": bytes(self.model.to_json(), encoding="utf8"),
-                "model-weights.h5": weights_artifact,
-            },
-        )
-        self._context.commit()
+        # TODO: Need to finish up the model handler
+        pass
 
     def on_epoch_end(self, epoch: int, logs: Dict[str, TrackableType] = None):
         """
-        Called at the end of an epoch.
+        Called at the end of an epoch, logging the dynamic hyperparameters and results of this epoch via the stored
+        context.
+
         :param epoch: Integer, index of epoch.
         :param logs:  Dict, metric results for this training epoch, and for the validation epoch if validation is
                       performed. Validation result keys are prefixed with `val_`. For training epoch, the values of the
@@ -141,26 +85,4 @@ class MLRunLoggingCallback(LoggingCallback):
         super(MLRunLoggingCallback, self).on_epoch_end(epoch=epoch)
 
         # Create child context to hold the current epoch's results:
-        child_ctx = self._context.get_child_context()
-
-        # Set the current iteration number according to the epoch number:
-        child_ctx._iteration = self._epochs
-
-        # Go over the static hyperparameters and log them to the context:
-        for parameter, value in self._static_hyperparameters.items():
-            child_ctx.log_result(parameter, value)
-
-        # Go over the dynamic hyperparameters and log them to the context:
-        for parameter, epochs in self._dynamic_hyperparameters.items():
-            child_ctx.log_result(parameter, epochs[-1])
-
-        # Go over the summaries and log them to the context:
-        for metric, epochs in self._summaries.items():
-            child_ctx.log_result(metric, epochs[-1])
-
-        # Update the last epoch to the main context:
-        self._context._results = child_ctx.results
-
-        # Commit and commit children for MLRun flag bug:
-        self._context.update_child_iterations(commit_children=True)
-        self._context.commit()
+        self._logger.log_epoch_to_context(epoch=epoch)

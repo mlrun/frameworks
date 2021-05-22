@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple, TypeVar, Generic
+from typing import Union, Dict, List, Tuple, Callable, TypeVar, Generic
 from abc import abstractmethod
 import os
 from datetime import datetime
@@ -52,6 +52,9 @@ class TensorboardLogger(Logger, Generic[Weight]):
 
     def __init__(
         self,
+        statistics_functions: List[
+            Callable[[Union[Weight]], Union[float, Weight]]
+        ],
         context: MLClientCtx = None,
         tensorboard_directory: str = None,
         run_name: str = None,
@@ -60,21 +63,25 @@ class TensorboardLogger(Logger, Generic[Weight]):
         Initialize a tensorboard logger callback with the given configuration. At least one of 'context' and
         'tensorboard_directory' must be given.
 
-        :param context:                 A mlrun context to use for logging into the user's tensorboard directory.
-        :param tensorboard_directory:   If context is not given, or if wished to set the directory even with context,
-                                        this will be the output for the event logs of tensorboard.
-        :param run_name:                This experiment run name. Each run name will be indexed at the end of the name
-                                        so each experiment will be numbered automatically. If a context was given, the
-                                        context's uid will be added instead of an index. If a run name was not given the
-                                        current time in the following format: 'YYYY-mm-dd_HH:MM:SS'.
+        :param statistics_functions:  A list of statistics functions to calculate at the end of each epoch on the
+                                      tracked weights. Only relevant if weights are being tracked. The functions in
+                                      the list must accept one Weight and return a float (or float convertible) value.
+        :param context:               A mlrun context to use for logging into the user's tensorboard directory.
+        :param tensorboard_directory: If context is not given, or if wished to set the directory even with context,
+                                      this will be the output for the event logs of tensorboard.
+        :param run_name:              This experiment run name. Each run name will be indexed at the end of the name so
+                                      each experiment will be numbered automatically. If a context was given, the
+                                      context's uid will be added instead of an index. If a run name was not given the
+                                      current time in the following format: 'YYYY-mm-dd_HH:MM:SS'.
         """
         super(TensorboardLogger, self).__init__()
 
-        # Store the context:
+        # Store the context and statistics functions:
         self._context = context
+        self._statistics_functions = statistics_functions
 
         # Create the output path to work with:
-        self._output_path = self._create_output_path(
+        self._output_path, self._run_name = self._create_output_path(
             tensorboard_directory=tensorboard_directory, run_name=run_name
         )
 
@@ -84,7 +91,9 @@ class TensorboardLogger(Logger, Generic[Weight]):
 
         # Setup the statistics dictionaries - a dictionary of statistics for the required weights per epoch:
         # [Statistic: str] -> [Weight: str] -> [epoch: int] -> [value: float]
-        self._statistics = {}  # type: Dict[str, Dict[str, List[float]]]
+        self._weights_statistics = {}  # type: Dict[str, Dict[str, List[float]]]
+        for statistic_function in self._statistics_functions:
+            self._weights_statistics[statistic_function.__name__] = {}  # type: Dict[str, List[float]]
 
     @property
     def weights(self):
@@ -96,23 +105,14 @@ class TensorboardLogger(Logger, Generic[Weight]):
         return self._weights
 
     @property
-    def statistics(self):
+    def weight_statistics(self):
         """
         Get the logged statistics for all the tracked weights. Each statistic has a dictionary of weights and their list
         of epochs values.
 
         :return: The statistics dictionary.
         """
-        return self._statistics
-
-    def log_statistic(self, statistic_name: str):
-        """
-        Log a new statistic into the statistics dictionary. It is important to first log the statistics and only then
-        log the weights. Otherwise the weights won't be registered in the statistics dictionary.
-
-        :param statistic_name: The statistic name to log.
-        """
-        self._statistics[statistic_name] = {}
+        return self._weights_statistics
 
     def log_weight(self, weight_name: str, weight_holder: Weight):
         """
@@ -128,18 +128,18 @@ class TensorboardLogger(Logger, Generic[Weight]):
         self._weights[weight_name] = weight_holder
 
         # Insert the weight to all the statistics:
-        for statistic in self._statistics:
-            self._statistics[statistic][weight_name] = []
+        for statistic in self._weights_statistics:
+            self._weights_statistics[statistic][weight_name] = []
 
-    def log_statistic_value(self, statistic_name: str, weight_name: str, value: float):
+    def log_weights_statistics(self):
         """
-        Log the given statistic value of the weight.
-
-        :param statistic_name: The statistic name logged with 'log_statistic'.
-        :param weight_name:    The weight's name.
-        :param value:          The value to log.
+        Calculate the statistics on the current weights and log the results.
         """
-        self._statistics[statistic_name][weight_name].append(value)
+        for weight_name, weight_parameter in self._weights.items():
+            for statistic_function in self._statistics_functions:
+                self._weights_statistics[statistic_function.__name__][
+                    weight_name
+                ].append(float(statistic_function(weight_parameter)))
 
     @abstractmethod
     def log_context_summary_to_tensorboard(self):
@@ -211,7 +211,9 @@ class TensorboardLogger(Logger, Generic[Weight]):
         """
         pass
 
-    def _create_output_path(self, tensorboard_directory: str, run_name: str) -> str:
+    def _create_output_path(
+        self, tensorboard_directory: str, run_name: str
+    ) -> Tuple[str, str]:
         """
         Create the output path, indexing the given run name as needed.
 
@@ -220,7 +222,9 @@ class TensorboardLogger(Logger, Generic[Weight]):
         :param run_name:              The run name to be indexed if needed. If a context was given, the run name will
                                       include the context's uid.
 
-        :return: The created output path.
+        :return: A tuple of strings:
+                 [0] = The created output path.
+                 [1] = The edited run name.
         """
         # If a run name was not given, take the current timestamp as the run name in the format 'YYYY-mm-dd_HH:MM:SS':
         if run_name is None:
@@ -257,7 +261,7 @@ class TensorboardLogger(Logger, Generic[Weight]):
         output_path = os.path.join(tensorboard_directory, run_name)
         os.makedirs(output_path)
 
-        return output_path
+        return output_path, run_name
 
     def _parse_context_summary(self) -> str:
         """

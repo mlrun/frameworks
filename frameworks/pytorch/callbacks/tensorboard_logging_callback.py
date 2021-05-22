@@ -1,6 +1,4 @@
 from typing import List, Tuple, Dict, Union, Callable
-import datetime
-import os
 import torch
 from torch import Tensor
 from torch.nn import Module, Parameter
@@ -8,13 +6,12 @@ from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.tensorboard.summary import hparams
-from frameworks._common.loggers import TensorboardLogger
+import mlrun
+from frameworks._common.loggers import TensorboardLogger, TrackableType
 from frameworks.pytorch.callbacks.logging_callback import (
     LoggingCallback,
-    TrackableType,
     MetricFunctionType,
 )
-import mlrun
 
 
 class _MLRunSummaryWriter(SummaryWriter):
@@ -50,6 +47,9 @@ class _PyTorchTensorboardLogger(TensorboardLogger):
 
     def __init__(
         self,
+        statistics_functions: List[
+            Callable[[Union[Parameter]], Union[float, Parameter]]
+        ],
         context: mlrun.MLClientCtx = None,
         tensorboard_directory: str = None,
         run_name: str = None,
@@ -58,15 +58,19 @@ class _PyTorchTensorboardLogger(TensorboardLogger):
         Initialize a tensorboard logger callback with the given configuration. At least one of 'context' and
         'tensorboard_directory' must be given.
 
-        :param context:                 A mlrun context to use for logging into the user's tensorboard directory.
-        :param tensorboard_directory:   If context is not given, or if wished to set the directory even with context,
-                                        this will be the output for the event logs of tensorboard.
-        :param run_name:                This experiment run name. Each run name will be indexed at the end of the name
-                                        so each experiment will be numbered automatically. If a context was given, the
-                                        context's uid will be added instead of an index. If a run name was not given the
-                                        current time in the following format: 'YYYY-mm-dd_HH:MM:SS'.
+        :param statistics_functions:  A list of statistics functions to calculate at the end of each epoch on the
+                                      tracked weights. Only relevant if weights are being tracked. The functions in
+                                      the list must accept one Weight and return a float (or float convertible) value.
+        :param context:               A mlrun context to use for logging into the user's tensorboard directory.
+        :param tensorboard_directory: If context is not given, or if wished to set the directory even with context,
+                                      this will be the output for the event logs of tensorboard.
+        :param run_name:              This experiment run name. Each run name will be indexed at the end of the name so
+                                      each experiment will be numbered automatically. If a context was given, the
+                                      context's uid will be added instead of an index. If a run name was not given the
+                                      current time in the following format: 'YYYY-mm-dd_HH:MM:SS'.
         """
         super(_PyTorchTensorboardLogger, self).__init__(
+            statistics_functions=statistics_functions,
             context=context,
             tensorboard_directory=tensorboard_directory,
             run_name=run_name,
@@ -146,9 +150,9 @@ class _PyTorchTensorboardLogger(TensorboardLogger):
         """
         Log the recent epoch summaries results to tensorboard.
         """
-        for parameter, epochs in self._summaries.items():
+        for metric, epochs in self._summaries.items():
             self._summary_writer.add_scalar(
-                tag="{}/{}".format(self._Sections.SUMMARY, parameter),
+                tag="{}/{}".format(self._Sections.SUMMARY, metric),
                 scalar_value=epochs[-1],
                 global_step=self._epochs,
             )
@@ -174,7 +178,7 @@ class _PyTorchTensorboardLogger(TensorboardLogger):
         """
         Log the last stored statistics values this logger collected to tensorboard.
         """
-        for statistic, weights in self._statistics.items():
+        for statistic, weights in self._weights_statistics.items():
             for weight_name, epoch_values in weights.items():
                 self._summary_writer.add_scalar(
                     tag="{}/{}:{}".format(
@@ -228,7 +232,7 @@ class TensorboardLoggingCallback(LoggingCallback):
         tensorboard_directory: str = None,
         run_name: str = None,
         weights: Union[bool, List[str]] = False,
-        weights_statistics: List[
+        statistics_functions: List[
             Callable[[Union[Parameter, Tensor]], Union[float, Tensor]]
         ] = None,
         dynamic_hyperparameters: Dict[str, Tuple[str, List[Union[str, int]]]] = None,
@@ -253,7 +257,7 @@ class TensorboardLoggingCallback(LoggingCallback):
                                         be searched as 'if <NAME> in <WEIGHT_NAME>' so a simple module name will be
                                         enough to catch his weights. A boolean value can be passed to track all weights.
                                         Defaulted to False.
-        :param weights_statistics:      A list of statistics functions to calculate at the end of each epoch on the
+        :param statistics_functions:      A list of statistics functions to calculate at the end of each epoch on the
                                         tracked weights. Only relevant if weights are being tracked. The functions in
                                         the list must accept one Parameter (or Tensor) and return a float (or float
                                         convertible) value. The default statistics are 'mean' and 'std'. To get the
@@ -293,27 +297,26 @@ class TensorboardLoggingCallback(LoggingCallback):
         if context is None and tensorboard_directory is None:
             raise ValueError(
                 "Expecting to receive a mlrun.MLClientCtx context or a path to a directory to output the logging file "
-                "but None were given.".format(self.__class__)
+                "but None were given."
             )
 
         # Replace the logger with an MLRunLogger:
         del self._logger
         self._logger = _PyTorchTensorboardLogger(
+            statistics_functions=(
+                statistics_functions
+                if statistics_functions is not None
+                else self.get_default_weight_statistics_list()
+            ),
             context=context,
             tensorboard_directory=tensorboard_directory,
             run_name=run_name,
-        )  # type: _PyTorchTensorboardLogger[Parameter]
+        )
 
         # Save the configurations:
         self._tracked_weights = weights
-        self._statistics_functions = (
-            weights_statistics
-            if weights_statistics is not None
-            else self.get_default_weight_statistics_list()
-        )
 
-    @property
-    def weights(self) -> Dict[str, Parameter]:
+    def get_weights(self) -> Dict[str, Parameter]:
         """
         Get the weights tensors tracked. The weights will be stored in a dictionary where each key is the weight's name
         and the value is the weight's parameter (tensor).
@@ -322,15 +325,14 @@ class TensorboardLoggingCallback(LoggingCallback):
         """
         return self._logger.weights
 
-    @property
-    def weights_statistics(self) -> Dict[str, List[float]]:
+    def get_weights_statistics(self) -> Dict[str, List[float]]:
         """
         Get the weights mean results logged. The results will be stored in a dictionary where each key is the weight's
         name and the value is a list of mean values per epoch.
 
         :return: The weights mean results.
         """
-        return self._logger.statistics
+        return self._logger.weight_statistics
 
     @staticmethod
     def get_default_weight_statistics_list() -> List[
@@ -382,25 +384,22 @@ class TensorboardLoggingCallback(LoggingCallback):
         if self._tracked_weights is False:
             return
 
-        # Log the statistics functions:
-        for statistic_function in self._statistics_functions:
-            self._logger.log_statistic(statistic_name=statistic_function.__name__)
-
         # Log the weights:
         for weight_name, weight_parameter in self._objects[
             self._ObjectKeys.MODEL
         ].named_parameters():
+            collect = False
             if self._tracked_weights is True:  # Collect all weights
+                collect = True
+            else:
+                for tag in self._tracked_weights:  # Collect by given name
+                    if tag in weight_name:
+                        collect = True
+                        break
+            if collect:
                 self._logger.log_weight(
                     weight_name=weight_name, weight_holder=weight_parameter
                 )
-                continue
-            for tag in self._tracked_weights:  # Collect by given name
-                if tag in weight_name:
-                    self._logger.log_weight(
-                        weight_name=weight_name, weight_holder=weight_parameter
-                    )
-                    break
 
     def on_run_begin(self):
         """
@@ -417,7 +416,7 @@ class TensorboardLoggingCallback(LoggingCallback):
         # Log the initial weights:
         self._logger.log_weights_histograms_to_tensorboard()
         self._logger.log_weights_images_to_tensorboard()
-        self._calculate_statistics()
+        self._logger.log_weights_statistics()
         self._logger.log_statistics_to_tensorboard()
 
     def on_run_end(self):
@@ -453,7 +452,7 @@ class TensorboardLoggingCallback(LoggingCallback):
         # Add weight histograms, images and statistics for all the tracked weights:
         self._logger.log_weights_histograms_to_tensorboard()
         self._logger.log_weights_images_to_tensorboard()
-        self._calculate_statistics()
+        self._logger.log_weights_statistics()
         self._logger.log_statistics_to_tensorboard()
 
         # Make sure all values were written to the directory logs:
@@ -494,15 +493,3 @@ class TensorboardLoggingCallback(LoggingCallback):
 
         # Add this batch loss and metrics results to their graphs:
         self._logger.log_validation_results_to_tensorboard()
-
-    def _calculate_statistics(self):
-        """
-        Run the statistics functions on the tracked weights and log the values.
-        """
-        for weight_name, weight_parameter in self._logger.weights.items():
-            for statistic_function in self._statistics_functions:
-                self._logger.log_statistic_value(
-                    statistic_name=statistic_function.__name__,
-                    weight_name=weight_name,
-                    value=float(statistic_function(weight_parameter)),
-                )

@@ -1,7 +1,7 @@
 from typing import Union, List, Dict, Tuple
 import numpy as np
 from torch import Tensor
-from torch.nn import Module
+from torch.nn import Module, Parameter
 from frameworks._common.loggers import Logger, TrackableType
 from frameworks.pytorch.callbacks.callback import (
     Callback,
@@ -26,7 +26,7 @@ class HyperparametersKeys:
 
 class LoggingCallback(Callback):
     """
-    Callback for collecting data during training / validation. All the collected data will be available in this callback
+    Callback for collecting data during training / evaluation. All the collected data will be available in this callback
     post the training / validation process and can be accessed via the 'training_results', 'validation_results',
     'static_hyperparameters', 'dynamic_hyperparameters' and 'summaries' properties.
     """
@@ -49,6 +49,7 @@ class LoggingCallback(Callback):
     ):
         """
         Initialize a logging callback with the given hyperparameters and logging configurations.
+
         :param dynamic_hyperparameters: If needed to track a hyperparameter dynamically (sample it each epoch) it should
                                         be passed here. The parameter expects a dictionary where the keys are the
                                         hyperparameter chosen names and the values are tuples of object key and a list
@@ -88,6 +89,7 @@ class LoggingCallback(Callback):
         Get the training results logged. The results will be stored in a dictionary where each key is the metric name
         and the value is a list of lists of values. The first list is by epoch and the second list is by iteration
         (batch).
+
         :return: The training results.
         """
         return self._logger.training_results
@@ -97,6 +99,7 @@ class LoggingCallback(Callback):
         Get the validation results logged. The results will be stored in a dictionary where each key is the metric name
         and the value is a list of lists of values. The first list is by epoch and the second list is by iteration
         (batch).
+
         :return: The validation results.
         """
         return self._logger.validation_results
@@ -105,6 +108,7 @@ class LoggingCallback(Callback):
         """
         Get the static hyperparameters logged. The hyperparameters will be stored in a dictionary where each key is the
         hyperparameter name and the value is his logged value.
+
         :return: The static hyperparameters.
         """
         return self._logger.static_hyperparameters
@@ -113,6 +117,7 @@ class LoggingCallback(Callback):
         """
         Get the dynamic hyperparameters logged. The hyperparameters will be stored in a dictionary where each key is the
         hyperparameter name and the value is a list of his logged values per epoch.
+
         :return: The dynamic hyperparameters.
         """
         return self._logger.dynamic_hyperparameters
@@ -121,6 +126,7 @@ class LoggingCallback(Callback):
         """
         Get the validation summaries of the metrics results. The summaries will be stored in a dictionary where each key
         is the metric names and the value is a list of all the summary values per epoch.
+
         :return: The validation summaries.
         """
         return self._logger.summaries
@@ -128,6 +134,7 @@ class LoggingCallback(Callback):
     def get_epochs(self) -> int:
         """
         Get the overall epochs this callback participated in.
+
         :return: The overall epochs this callback participated in.
         """
         return self._logger.epochs
@@ -135,6 +142,7 @@ class LoggingCallback(Callback):
     def get_train_iterations(self) -> int:
         """
         Get the overall train iterations this callback participated in.
+
         :return: The overall train iterations this callback participated in.
         """
         return self._logger.train_iterations
@@ -142,6 +150,7 @@ class LoggingCallback(Callback):
     def get_validation_iterations(self) -> int:
         """
         Get the overall validation iterations this callback participated in.
+
         :return: The overall validation iterations this callback participated in.
         """
         return self._logger.validation_iterations
@@ -197,6 +206,7 @@ class LoggingCallback(Callback):
         """
         After the trainer given epoch begins, this method will be called to append a new list to each of the metrics
         results for the new epoch.
+
         :param epoch: The epoch that is about to begin.
         """
         self._logger.log_epoch()
@@ -204,6 +214,7 @@ class LoggingCallback(Callback):
     def on_epoch_end(self, epoch: int):
         """
         Before the trainer given epoch ends, this method will be called to log the dynamic hyperparameters as needed.
+
         :param epoch: The epoch that has just ended.
         """
         # Update the dynamic hyperparameters dictionary:
@@ -238,6 +249,7 @@ class LoggingCallback(Callback):
         """
         Before the trainer / evaluator validation (in a trainer's case it will be per epoch) ends, this method will be
         called to log the validation results summaries.
+
         :param loss_value:    The loss summary of this validation.
         :param metric_values: The metrics summaries of this validation.
         """
@@ -266,6 +278,7 @@ class LoggingCallback(Callback):
         """
         After the trainer training of the given batch begins, this method will be called to check whether this iteration
         needs to be logged.
+
         :param batch:  The current batch iteration of when this method is called.
         :param x:      The input part of the current batch.
         :param y_true: The true value part of the current batch.
@@ -277,6 +290,7 @@ class LoggingCallback(Callback):
         """
         After the trainer / evaluator validation of the given batch begins, this method will be called to check whether
         this iteration needs to be logged.
+
         :param batch:  The current batch iteration of when this method is called.
         :param x:      The input part of the current batch.
         :param y_true: The true value part of the current batch.
@@ -287,6 +301,7 @@ class LoggingCallback(Callback):
     def on_train_loss_end(self, loss_value: MetricValueType):
         """
         After the trainer training calculation of the loss, this method will be called to log the loss value.
+
         :param loss_value: The recent loss value calculated during training.
         """
         # Check if this iteration should be logged:
@@ -306,6 +321,7 @@ class LoggingCallback(Callback):
         """
         After the trainer / evaluator validating calculation of the loss, this method will be called to log the loss
         value.
+
         :param loss_value: The recent loss value calculated during validation.
         """
         # Check if this iteration should be logged:
@@ -324,6 +340,7 @@ class LoggingCallback(Callback):
     def on_train_metrics_end(self, metric_values: List[MetricValueType]):
         """
         After the trainer training calculation of the metrics, this method will be called to log the metrics values.
+
         :param metric_values: The recent metric values calculated during training.
         """
         # Check if this iteration should be logged:
@@ -346,6 +363,7 @@ class LoggingCallback(Callback):
         """
         After the trainer / evaluator validating calculation of the metrics, this method will be called to log the
         metrics values.
+
         :param metric_values: The recent metric values calculated during validation.
         """
         # Check if this iteration should be logged:
@@ -367,6 +385,7 @@ class LoggingCallback(Callback):
     def _on_batch_begin(self, batch: int):
         """
         Method to run on every batch (training and validation).
+
         :param batch: The batch index.
         """
         self._log_iteration = batch % self._per_iteration_logging == 0
@@ -375,8 +394,10 @@ class LoggingCallback(Callback):
     def _get_metric_name(metric_type: str, metric_function: MetricFunctionType):
         """
         Get the given metric name.
+
         :param metric_type:     Each metric can be either 'loss' or 'accuracy'.
         :param metric_function: The metric function to get its name.
+
         :return: The metric name.
         """
         if isinstance(metric_function, Module):
@@ -389,9 +410,12 @@ class LoggingCallback(Callback):
     def _get_hyperparameter(source, key_chain: List[Union[str, int]]) -> TrackableType:
         """
         Access the hyperparameter from the source using the given key chain.
+
         :param source:    The object to get the hyperparamter value from.
         :param key_chain: The keys and indices to get to the hyperparameter from the given source object.
+
         :return: The hyperparameter value.
+
         :raise KeyError:   In case the one of the keys in the key chain is incorrect.
         :raise IndexError: In case the one of the keys in the key chain is incorrect.
         :raise ValueError: In case the value is not trackable.
@@ -412,7 +436,7 @@ class LoggingCallback(Callback):
                 )
 
         # Parse the value:
-        if isinstance(value, Tensor):
+        if isinstance(value, Tensor) or isinstance(value, Parameter):
             if value.numel() == 1:
                 value = float(value)
             else:
