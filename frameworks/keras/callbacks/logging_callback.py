@@ -146,7 +146,7 @@ class LoggingCallback(Callback):
         """
         Called once at the beginning of training process (one time call).
 
-        :param logs: Dict. Currently no data is passed to this argument for this method but that may change in the
+        :param logs: Currently no data is passed to this argument for this method but that may change in the
                      future.
         """
         self._setup_run()
@@ -156,19 +156,19 @@ class LoggingCallback(Callback):
         Called at the beginning of evaluation or validation. Will be called on each epoch according to the validation
         per epoch configuration.
 
-        :param logs: Dict. Currently no data is passed to this argument for this method but that may change in the
+        :param logs: Currently no data is passed to this argument for this method but that may change in the
                      future.
         """
         # If this callback is part of evaluation and not training, need to check if the run was setup:
         if not self._run_set_up:
             self._setup_run()
 
-    def on_test_end(self, logs: Dict[str, Any] = None):
+    def on_test_end(self, logs: dict = None):
         """
         Called at the end of evaluation or validation. Will be called on each epoch according to the validation
         per epoch configuration. The recent evaluation / validation results will be summarized and logged.
 
-        :param logs: Dict. Currently no data is passed to this argument for this method but that may change in the
+        :param logs: Currently no data is passed to this argument for this method but that may change in the
                      future.
         """
         # Store the metrics average of this epoch:
@@ -181,12 +181,12 @@ class LoggingCallback(Callback):
                 result=float(sum(epoch_values[-1]) / len(epoch_values[-1])),
             )
 
-    def on_epoch_begin(self, epoch: int, logs=None):
+    def on_epoch_begin(self, epoch: int, logs: dict = None):
         """
         Called at the start of an epoch, logging it and appending a new epoch to the logger's dictionaries.
 
         :param epoch: Integer, index of epoch.
-        :param logs:  Dict. Currently no data is passed to this argument for this method but that may change in the
+        :param logs:  Currently no data is passed to this argument for this method but that may change in the
                       future.
         """
         # Log a new epoch:
@@ -197,12 +197,12 @@ class LoggingCallback(Callback):
             for metric in sum_dictionary:
                 sum_dictionary[metric] = 0
 
-    def on_epoch_end(self, epoch: int, logs: Dict[str, TrackableType] = None):
+    def on_epoch_end(self, epoch: int, logs: dict = None):
         """
         Called at the end of an epoch, logging the current dynamic hyperparameters values.
 
         :param epoch: Integer, index of epoch.
-        :param logs:  Dict, metric results for this training epoch, and for the validation epoch if validation is
+        :param logs:  Metric results for this training epoch, and for the validation epoch if validation is
                       performed. Validation result keys are prefixed with `val_`. For training epoch, the values of the
                       `Model`'s metrics are returned. Example : `{'loss': 0.2, 'acc': 0.7}`.
         """
@@ -216,14 +216,14 @@ class LoggingCallback(Callback):
                     value=self._get_hyperparameter(key_chain=key_chain),
                 )
 
-    def on_train_batch_begin(self, batch: int, logs: Dict[str, TrackableType] = None):
+    def on_train_batch_begin(self, batch: int, logs: dict = None):
         """
         Called at the beginning of a training batch in `fit` methods. The logger will check if this batch is needed to
         be logged according to the configuration. Note that if the `steps_per_execution` argument to `compile` in
         `tf.keras.Model` is set to `N`, this method will only be called every `N` batches.
 
         :param batch: Integer, index of batch within the current epoch.
-        :param logs:  Dict, contains the return value of `model.train_step`. Typically, the values of the `Model`'s
+        :param logs:  Contains the return value of `model.train_step`. Typically, the values of the `Model`'s
                       metrics are returned. Example: `{'loss': 0.2, 'accuracy': 0.7}`.
         """
         self._logger.log_training_iteration()
@@ -236,7 +236,7 @@ class LoggingCallback(Callback):
         called every `N` batches.
 
         :param batch: Integer, index of batch within the current epoch.
-        :param logs:  Dict. Aggregated metric results up until this batch.
+        :param logs:  Aggregated metric results up until this batch.
         """
         self._on_batch_end(
             results_dictionary=self._logger.training_results,
@@ -252,7 +252,7 @@ class LoggingCallback(Callback):
         is set to `N`, this method will only be called every `N` batches.
 
         :param batch: Integer, index of batch within the current epoch.
-        :param logs:  Dict, contains the return value of `model.test_step`. Typically, the values of the `Model`'s
+        :param logs:  Contains the return value of `model.test_step`. Typically, the values of the `Model`'s
                       metrics are returned.  Example: `{'loss': 0.2, 'accuracy': 0.7}`.
         """
         self._logger.log_validation_iteration()
@@ -266,7 +266,7 @@ class LoggingCallback(Callback):
         every `N` batches.
 
         :param batch: Integer, index of batch within the current epoch.
-        :param logs:  Dict. Aggregated metric results up until this batch.
+        :param logs:  Aggregated metric results up until this batch.
         """
         self._on_batch_end(
             results_dictionary=self._logger.validation_results,

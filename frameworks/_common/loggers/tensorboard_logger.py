@@ -271,4 +271,4 @@ class TensorboardLogger(Logger, Generic[Weight]):
         """
         # TODO: take a look in mlrun/mlrun/render.py and see the uid_template html hyperlink and put it the text
         #       summary. Add context meta-data.
-        pass
+        return "Testing testing"

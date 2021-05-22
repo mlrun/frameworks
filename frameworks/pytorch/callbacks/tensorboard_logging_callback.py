@@ -83,7 +83,9 @@ class _PyTorchTensorboardLogger(TensorboardLogger):
         """
         Log a summary of this training / validation run to tensorboard.
         """
-        pass
+        self._summary_writer.add_text(
+            tag="Summary", text_string=self._parse_context_summary()
+        )
 
     def log_parameters_table_to_tensorboard(self):
         """

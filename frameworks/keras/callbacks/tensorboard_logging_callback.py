@@ -1,6 +1,4 @@
-from typing import List, Tuple, Dict, Union, Any, Callable
-import datetime
-import os
+from typing import List, Dict, Union, Callable
 import tensorflow as tf
 from tensorflow import Tensor, Variable
 from tensorflow.python.ops import summary_ops_v2
@@ -21,9 +19,7 @@ class _KerasTensorboardLogger(TensorboardLogger):
 
     def __init__(
         self,
-        statistics_functions: List[
-            Callable[[Union[Variable]], Union[float, Variable]]
-        ],
+        statistics_functions: List[Callable[[Union[Variable]], Union[float, Variable]]],
         context: mlrun.MLClientCtx = None,
         tensorboard_directory: str = None,
         run_name: str = None,
@@ -58,7 +54,8 @@ class _KerasTensorboardLogger(TensorboardLogger):
         """
         Log a summary of this training / validation run to tensorboard.
         """
-        pass
+        with self._file_writer.as_default():
+            tf.summary.text(name="Summary", data=self._parse_context_summary())
 
     def log_parameters_table_to_tensorboard(self):
         """
@@ -187,9 +184,15 @@ class _KerasTensorboardLogger(TensorboardLogger):
                 summary_ops_v2.keras_model(name=model.name, data=model, step=batch)
 
     def flush(self):
+        """
+        Make sure all values were written to the directory logs so it will be available live.
+        """
         self._file_writer.flush()
 
     def close(self):
+        """
+        Close the file writer object, wrapping up the hyperparameters table.
+        """
         # Close the hyperparameters writing:
         if not (
             len(self._static_hyperparameters) == 0
@@ -349,6 +352,13 @@ class TensorboardLoggingCallback(LoggingCallback):
         return [tf.math.reduce_mean, tf.math.reduce_std]
 
     def on_train_begin(self, logs: dict = None):
+        """
+        Called once at the beginning of training process (one time call). Will log the pre-training (epoch 0)
+        hyperparameters and weights.
+
+        :param logs: Dict. Currently no data is passed to this argument for this method but that may change in the
+                     future.
+        """
         # The callback is on a 'fit' method - training:
         self._is_training = True
 
@@ -365,12 +375,25 @@ class TensorboardLoggingCallback(LoggingCallback):
         self._logger.flush()
 
     def on_train_end(self, logs: dict = None):
+        """
+        Called at the end of training, wrapping up the tensorboard logging session.
+
+        :param logs: Currently the output of the last call to `on_epoch_end()` is passed to this argument for this
+                     method but that may change in the future.
+        """
         super(TensorboardLoggingCallback, self).on_train_end()
 
         # Close the logger:
         self._logger.close()
 
     def on_test_begin(self, logs: dict = None):
+        """
+        Called at the beginning of evaluation or validation. Will be called on each epoch according to the validation
+        per epoch configuration. In case it is an evaluation, the epoch 0 will be logged.
+
+        :param logs: Currently no data is passed to this argument for this method but that may change in the
+                     future.
+        """
         # If this callback is part of evaluation and not training, need to check if the run was setup:
         if not self._run_set_up:
             # Setup the run, logging relevant information and tracking weights:
@@ -383,7 +406,14 @@ class TensorboardLoggingCallback(LoggingCallback):
             # Make sure all values were written to the directory logs:
             self._logger.flush()
 
-    def on_test_end(self, logs: Dict[str, Any] = None):
+    def on_test_end(self, logs: dict = None):
+        """
+        Called at the end of evaluation or validation. Will be called on each epoch according to the validation
+        per epoch configuration. The recent evaluation / validation results will be summarized and logged.
+
+        :param logs: Currently no data is passed to this argument for this method but that may change in the
+                     future.
+        """
         super(TensorboardLoggingCallback, self).on_test_end(logs=logs)
 
         # Check if needed to end the run (in case of evaluation and not training):
@@ -391,7 +421,16 @@ class TensorboardLoggingCallback(LoggingCallback):
             # Close the logger:
             self._logger.close()
 
-    def on_epoch_end(self, epoch: int, logs: Dict[str, TrackableType] = None):
+    def on_epoch_end(self, epoch: int, logs: dict = None):
+        """
+        Called at the end of an epoch, logging the current dynamic hyperparameters values, summaries and weights to
+        tensorboard.
+
+        :param epoch: Integer, index of epoch.
+        :param logs:  Metric results for this training epoch, and for the validation epoch if validation is
+                      performed. Validation result keys are prefixed with `val_`. For training epoch, the values of the
+                      `Model`'s metrics are returned. Example : `{'loss': 0.2, 'acc': 0.7}`.
+        """
         # Update the dynamic hyperparameters
         super(TensorboardLoggingCallback, self).on_epoch_end(epoch=epoch)
 
@@ -410,7 +449,16 @@ class TensorboardLoggingCallback(LoggingCallback):
         # Make sure all values were written to the directory logs:
         self._logger.flush()
 
-    def on_train_batch_begin(self, batch: int, logs: Dict[str, TrackableType] = None):
+    def on_train_batch_begin(self, batch: int, logs: dict = None):
+        """
+        Called at the beginning of a training batch in `fit` methods. The logger will check if this batch is needed to
+        be logged according to the configuration. Note that if the `steps_per_execution` argument to `compile` in
+        `tf.keras.Model` is set to `N`, this method will only be called every `N` batches.
+
+        :param batch: Integer, index of batch within the current epoch.
+        :param logs:  Contains the return value of `model.train_step`. Typically, the values of the `Model`'s
+                      metrics are returned. Example: `{'loss': 0.2, 'accuracy': 0.7}`.
+        """
         super(TensorboardLoggingCallback, self).on_train_batch_begin(
             batch=batch, logs=logs
         )
@@ -418,6 +466,15 @@ class TensorboardLoggingCallback(LoggingCallback):
             summary_ops_v2.trace_on(graph=True, profiler=False)
 
     def on_train_batch_end(self, batch: int, logs: dict = None):
+        """
+        Called at the end of a training batch in `fit` methods. The batch metrics results will be logged. If it is the
+        first batch to end, the model architecture and hyperparameters will be logged as well. Note that if the
+        `steps_per_execution` argument to `compile` in `tf.keras.Model` is set to `N`, this method will only be called
+        every `N` batches.
+
+        :param batch: Integer, index of batch within the current epoch.
+        :param logs:  Aggregated metric results up until this batch.
+        """
         # Log the batch's results:
         super(TensorboardLoggingCallback, self).on_train_batch_end(
             batch=batch, logs=logs
@@ -438,6 +495,16 @@ class TensorboardLoggingCallback(LoggingCallback):
             self._logger.log_dynamic_hyperparameters_to_tensorboard()
 
     def on_test_batch_begin(self, batch: int, logs: dict = None):
+        """
+        Called at the beginning of a batch in `evaluate` methods. Also called at the beginning of a validation batch in
+        the `fit` methods, if validation data is provided. The logger will check if this batch is needed to be logged
+        according to the configuration. Note that if the `steps_per_execution` argument to `compile` in `tf.keras.Model`
+        is set to `N`, this method will only be called every `N` batches.
+
+        :param batch: Integer, index of batch within the current epoch.
+        :param logs:  Contains the return value of `model.test_step`. Typically, the values of the `Model`'s
+                      metrics are returned.  Example: `{'loss': 0.2, 'accuracy': 0.7}`.
+        """
         super(TensorboardLoggingCallback, self).on_test_batch_begin(
             batch=batch, logs=logs
         )
@@ -446,6 +513,16 @@ class TensorboardLoggingCallback(LoggingCallback):
             summary_ops_v2.trace_on(graph=True, profiler=False)
 
     def on_test_batch_end(self, batch: int, logs: dict = None):
+        """
+        Called at the end of a batch in `evaluate` methods. Also called at the end of a validation batch in the `fit`
+        methods, if validation data is provided. The batch metrics results will be logged. In case it is an evaluation
+        run, if this was the first batch the model architecture and hyperparameters will be logged as well. Note that if
+        the `steps_per_execution` argument to `compile` in `tf.keras.Model` is set to `N`, this method will only be
+        called every `N` batches.
+
+        :param batch: Integer, index of batch within the current epoch.
+        :param logs:  Aggregated metric results up until this batch.
+        """
         # Log the batch's results:
         super(TensorboardLoggingCallback, self).on_test_batch_end(
             batch=batch, logs=logs
