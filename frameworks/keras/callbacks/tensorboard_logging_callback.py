@@ -177,11 +177,19 @@ class _KerasTensorboardLogger(TensorboardLogger):
         Log the given model as a graph in tensorboard.
         """
         with self._file_writer.as_default():
-            with summary_ops_v2.always_record_summaries():
+            if tf.__version__ == "2.4.1":
+                with summary_ops_v2.always_record_summaries():
+                    summary_ops_v2.trace_export(
+                        name="epoch_{}_batch_{}".format(self._epochs, batch), step=batch
+                    )
+                    summary_ops_v2.keras_model(name=model.name, data=model, step=batch)
+            elif tf.__version__ == "2.5.0":
+                from tensorflow.keras.callbacks import keras_model_summary
+                with summary_ops_v2.record_if(True):
+                    keras_model_summary('keras', model, step=0)
                 summary_ops_v2.trace_export(
                     name="epoch_{}_batch_{}".format(self._epochs, batch), step=batch
                 )
-                summary_ops_v2.keras_model(name=model.name, data=model, step=batch)
 
     def flush(self):
         """
