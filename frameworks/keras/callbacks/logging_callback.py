@@ -206,8 +206,6 @@ class LoggingCallback(Callback):
                       performed. Validation result keys are prefixed with `val_`. For training epoch, the values of the
                       `Model`'s metrics are returned. Example : `{'loss': 0.2, 'acc': 0.7}`.
         """
-        self._epochs += 1
-
         # Update the dynamic hyperparameters dictionary:
         if self._dynamic_hyperparameters_keys:
             for name, key_chain in self._dynamic_hyperparameters_keys.items():
