@@ -29,6 +29,7 @@ class MLRunLoggingCallback(LoggingCallback):
     def __init__(
         self,
         context: mlrun.MLClientCtx,
+        custom_objects: Dict,
         dynamic_hyperparameters: Dict[str, Tuple[str, List[Union[str, int]]]] = None,
         static_hyperparameters: Dict[
             str, Union[TrackableType, Tuple[str, List[Union[str, int]]]]
@@ -39,6 +40,15 @@ class MLRunLoggingCallback(LoggingCallback):
         Initialize an mlrun logging callback with the given hyperparameters and logging configurations.
 
         :param context:                 The mlrun context to log with.
+        :param custom_objects:          Custom objects the model is using. Expecting a dictionary with the classes names
+                                        to import as keys (if multiple classes needed to be imported from the same py
+                                        file a list can be given) and the python file from where to import them as their
+                                        values. The model class itself must be specified in order to properly save it
+                                        for later being loaded with a handler. For example:
+                                        {
+                                            "class_name": "/path/to/model.py",
+                                            ["layer1", "layer2"]: "/path/to/custom_layers.py"
+                                        }
         :param dynamic_hyperparameters: If needed to track a hyperparameter dynamically (sample it each epoch) it should
                                         be passed here. The parameter expects a dictionary where the keys are the
                                         hyperparameter chosen names and the values are tuples of object key and a list
@@ -70,9 +80,22 @@ class MLRunLoggingCallback(LoggingCallback):
         del self._logger
         self._logger = MLRunLogger(context=context)
 
+        # Store the custom objects:
+        self._custom_objects = custom_objects
+
     def on_run_end(self):
-        # TODO: Need to finish up the model handler
-        pass
+        """
+        Before the trainer / evaluator run ends, this method will be called to log the model and the run summaries
+        charts.
+        """
+        model = self._objects[self._ObjectKeys.MODEL]
+        self._logger.log_run(
+            model_handler=PyTorchModelHandler(
+                model_class=type(model).__name__,
+                custom_objects=self._custom_objects,
+                model=model,
+            )
+        )
 
     def on_epoch_end(self, epoch: int):
         """

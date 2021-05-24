@@ -1,7 +1,4 @@
-from frameworks._common.evaluation.evaluator import Evaluator
-
-
-class PyTorchEvaluator(Evaluator):
+class PyTorchEvaluator:
     """
     An interface for an evaluator - a class for wrapping a pytorch model evaluation process supplying additional mlrun
     features.

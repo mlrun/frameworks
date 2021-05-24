@@ -1,28 +1,53 @@
-from typing import Union, Dict, Type
+from typing import Union, List, Dict, Type
+
+import os
 
 import tensorflow as tf
+from tensorflow import keras
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Layer
 from tensorflow.keras.losses import Loss
 from tensorflow.keras.optimizers import Optimizer
 from tensorflow.keras.metrics import Metric
 
-from frameworks._common.utilities.model_handler import ModelHandler
+import mlrun
+from mlrun.artifacts import Artifact
 
-
-class SaveFormats:
-    """
-    Save formats to pass to the 'KerasModelHandler'.
-    """
-
-    SAVED_MODEL = "SavedModel"
-    JSON_ARCHITECTURE_H5_WEIGHTS = "Json_H5"
+from frameworks._common.utilities import ModelHandler
 
 
 class KerasModelHandler(ModelHandler):
+    """
+    Class for handling a tensorflow.keras model, enabling loading and saving it during runs.
+    """
+
+    class SaveFormats:
+        """
+        Save formats to pass to the 'KerasModelHandler'.
+        """
+
+        SAVED_MODEL = "SavedModel"
+        JSON_ARCHITECTURE_H5_WEIGHTS = "Json_H5"
+        TF_CHECKPOINT = "TFCheckpoint"
+
+        @staticmethod
+        def _get_formats() -> List[str]:
+            """
+            Get a list with all the supported saving formats.
+
+            :return: Saving formats list.
+            """
+            return [
+                value
+                for key, value in KerasModelHandler.SaveFormats.__dict__.items()
+                if not key.startswith("_") and isinstance(value, str)
+            ]
+
     def __init__(
         self,
+        context: mlrun.MLClientCtx = None,
         model: Model = None,
+        model_name: str = None,
         model_path: str = None,
         weights_path: str = None,
         custom_objects: Dict[
@@ -36,9 +61,12 @@ class KerasModelHandler(ModelHandler):
     ):
         """
         Initialize the handler. The model can be set here so it won't require loading.
+
+        :param context:        MLRun context to work with.
         :param model:          Model to handle or None in case a loading parameters were supplied.
+        :param model_name:     The model name for saving and logging the model. Defaulted to the given model class.
         :param model_path:     Path to the model directory (SavedModel format) or the model architecture (Json and H5
-                               format)
+                               format).
         :param weights_path:   Path to the weights 'h5' file if the model was saved
         :param custom_objects: A dictionary of all the custom objects required for loading the model. The keys are
                                the class name of the custom object and the value can be the class or a path to a python
@@ -47,39 +75,188 @@ class KerasModelHandler(ModelHandler):
                                each of the custom object must implement the methods 'get_config' and 'from_config'.
         :param save_format:    The save format to use. Should be passed as a member of the class 'SaveFormats'.
         :param save_traces:    Whether or not to use functions saving (only available for the save format
-                               'SaveFormats.SAVED_MODEL_DIRECTORY_FORMAT') for loading the model later without the
-                               custom objects dictionary. Only from tensorflow version >= 2.4.0
+                               'SaveFormats.SAVED_MODEL') for loading the model later without the custom objects
+                               dictionary. Only from tensorflow version >= 2.4.0.
+
+        :raise ValueError: In case the input was incorrect:
+                           * Save format is unrecognized.
+                           * There was no model or model files supplied.
+                           * 'save_traces' parameter was miss-used.
         """
-        # Set the model if given:
-        super(KerasModelHandler, self).__init__(model=model)
+        # Setup the handler with name, context and model:
+        if model_name is None:
+            if model is not None:
+                model_name = model.name
+            # TODO: Get the model names from file paths (without extension '.h5'/'.json') should be static in base class
+        super(KerasModelHandler, self).__init__(
+            model=model, model_name=model_name, context=context
+        )
+
+        # Validate 'save_format':
+        if save_format not in KerasModelHandler.SaveFormats._get_formats():
+            raise ValueError("Unrecognized save format: '{}'".format(save_format))
+
+        # Validate model was given in some way:
+        if model is None:
+            if (
+                self._save_format
+                == KerasModelHandler.SaveFormats.JSON_ARCHITECTURE_H5_WEIGHTS
+            ):
+                if model_path is None or weights_path is None:
+                    raise ValueError(
+                        "For 'SaveFormats.JSON_ARCHITECTURE_H5_WEIGHTS' both model and weights file must "
+                        "be given."
+                    )
+            elif self._save_format == KerasModelHandler.SaveFormats.TF_CHECKPOINT:
+                raise NotImplementedError
+            else:
+                # self._save_format = SaveFormats.SAVED_MODEL
+                raise NotImplementedError
+
+        # Validate 'save_traces':
+        if save_traces:
+            if float(tf.__version__.rsplit(".", 1)[0]) < 2.4:
+                raise ValueError(
+                    "The 'save_traces' parameter can be true only for tensorflow versions >= 2.4. Current "
+                    "version is {}".format(tf.__version__)
+                )
+            if save_format != KerasModelHandler.SaveFormats.SAVED_MODEL:
+                raise ValueError(
+                    "The 'save_traces' parameter is valid only for the 'SavedModel' format."
+                )
 
         # Store the configuration:
+        self._model_path = model_path
+        self._weights_path = weights_path
+        self._custom_objects = custom_objects
         self._save_format = save_format
-        if save_traces:
-            if float(tf.__version__.rsplit('.', 1)[0]) < 2.4:
-                raise ValueError("The 'save_traces' parameter can be true only for tensorflow versions >= 2.4. Current "
-                                 "version is {}".format(tf.__version__))
         self._save_traces = save_traces
 
-    def save(self, output_path: str = None, *args, **kwargs):
+        # Import the custom objects:
+        self._import_custom_objects()
+
+    def save(
+        self, output_path: str = None, update_paths: bool = True, *args, **kwargs
+    ) -> Union[Dict[str, Artifact], None]:
         """
         Save the handled model at the given output path.
-        :param output_path: The full path to the directory and the model's file in it to save the handled model at.
+
+        :param output_path:  The full path to the directory to save the handled model at. If not given, the context
+                             stored will be used to save the model in the defaulted location.
+        :param update_paths: Whether or not to update the model and weights paths to the newly saved model. Defaulted to
+                             True.
+
+        :return The saved model artifacts dictionary if context is available and None otherwise.
+
         :raise RuntimeError: In case there is no model initialized in this handler.
+        :raise ValueError:   If an output path was not given, yet a context was not provided in initialization.
         """
-        if self._model is None:
-            raise RuntimeError(
-                "Model cannot be save as it was not given in initialization or loaded during this run."
-            )
-        raise NotImplementedError
+        super(KerasModelHandler, self).save(output_path=output_path)
+
+        # Setup the returning model artifacts list:
+        artifacts = {}  # type: Dict[str, Artifact]
+        model_path = None  # type: str
+        weights_path = None  # type: str
+
+        if (
+            self._save_format
+            == KerasModelHandler.SaveFormats.JSON_ARCHITECTURE_H5_WEIGHTS
+        ):
+            # Save the model architecture (json):
+            model_architecture = self._model.to_json()
+            if output_path is None:
+                output_path = self._context.artifact_path
+            model_path = os.path.join(output_path, "{}.json".format(self._model_name))
+            with open(model_path, "w") as json_file:
+                json_file.write(model_architecture)
+            # Save the model weights (h5):
+            weights_path = os.path.join(output_path, "{}.h5".format(self._model_name))
+            self._model.save_weights(weights_path)
+        elif self._save_format == KerasModelHandler.SaveFormats.TF_CHECKPOINT:
+            raise NotImplementedError
+        else:
+            # self._save_format = SaveFormats.SAVED_MODEL
+            raise NotImplementedError
+
+        # Update the paths and log artifacts if context is available:
+        if model_path:
+            self._model_path = model_path
+            if self._context:
+                artifacts["model_file"] = self._context.log_artifact(
+                    os.path.basename(model_path),
+                    local_path=os.path.basename(model_path),
+                    db_key=False,
+                )
+
+        if weights_path:
+            self._weights_path = weights_path
+            if self._context:
+                artifacts["weights_file"] = self._context.log_artifact(
+                    os.path.basename(weights_path),
+                    local_path=os.path.basename(weights_path),
+                    db_key=False,
+                )
+
+        return artifacts if self._context else None
 
     def load(self, uid: str = None, epoch: int = None, *args, **kwargs):
         """
         Load the specified model in this handler. Additional parameters for the class initializer can be passed via the
         args list and kwargs dictionary.
         """
-        # If a model instance is already loaded, delete it from memory:
-        if self._model:
-            del self._model
+        super(KerasModelHandler, self).load(uid=uid, epoch=epoch)
 
-        raise NotImplementedError
+        if (
+            self._save_format
+            == KerasModelHandler.SaveFormats.JSON_ARCHITECTURE_H5_WEIGHTS
+        ):
+            # Load the model architecture (json):
+            with open(self._model_path, "r") as json_file:
+                model_architecture = json_file.read()
+            self._model = keras.models.model_from_json(model_architecture)
+            # Load the model weights (h5):
+            self._model.load_weights(self._weights_path)
+        elif self._save_format == KerasModelHandler.SaveFormats.TF_CHECKPOINT:
+            raise NotImplementedError
+        else:
+            # self._save_format = SaveFormats.SAVED_MODEL
+            raise NotImplementedError
+
+    def log(self, artifacts: Dict[str, Artifact]):
+        """
+        Log the model held by this handler into the MLRun context provided.
+
+        :param artifacts: Artifacts to log the model with.
+
+        :raise RuntimeError: In case there is no model in this handler.
+        :raise ValueError:   In case a context is missing.
+        """
+        super(KerasModelHandler, self).log(artifacts=artifacts)
+
+        # Save the model:
+        model_artifacts = self.save(update_paths=True)
+
+        # Log the model:
+        self._context.log_model(
+            self._model.name,
+            model_file=os.path.basename(self._model_path),
+            labels={"framework": "tensorflow.keras", "save format": self._save_format},
+            metrics=self._context.results,
+            extra_data={
+                **model_artifacts,
+                **artifacts
+            },
+        )
+
+    def _import_custom_objects(self):
+        """
+        Import the custom objects from the 'self._custom_objects_sources' dictionary into the
+        'self._imported_custom_objects'.
+        """
+        if self._custom_objects:
+            for object_name in self._custom_objects:
+                if isinstance(self._custom_objects[object_name], str):
+                    self._custom_objects[object_name] = self._import_module(
+                        classes_names=[object_name],
+                        py_file_path=self._custom_objects[object_name],
+                    )[object_name]

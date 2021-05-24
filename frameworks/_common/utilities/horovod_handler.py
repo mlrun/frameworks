@@ -1,3 +1,5 @@
+from types import ModuleType
+from typing import Union
 import sys
 from abc import ABC, abstractmethod
 
@@ -19,9 +21,10 @@ class HorovodHandler(ABC):
         pass
 
     @staticmethod
-    def get_horovod():
+    def get_horovod() -> Union[None, ModuleType]:
         """
         Get the global instance of horovod.
+
         :return: The 'hvd' global instance of horovod. If it was not imported, None will be returned.
         """
         return HorovodHandler.hvd
@@ -31,7 +34,7 @@ class HorovodHandler(ABC):
         """
         Delete the global horovod module from the system. If it was not imported, the function will simply return.
         """
-        if not HorovodHandler.hvd:
+        if HorovodHandler.hvd is None:
             return
         del HorovodHandler.hvd
         HorovodHandler.hvd = None
@@ -40,9 +43,19 @@ class HorovodHandler(ABC):
                 del sys.modules[module_name]
 
     @staticmethod
+    def is_horovod_imported() -> bool:
+        """
+        Check if the horovod module was imported.
+
+        :return: True if horovod is imported and false if not.
+        """
+        return HorovodHandler.hvd is not None
+
+    @staticmethod
     def _import_horovod_framework(framework: str):
         """
         Import the global instance of horovod according to the given framework.
+
         :param framework: The framework to import. Can be one of 'torch', 'tensorflow.keras' and 'tensorflow'.
         """
         HorovodHandler.hvd = __import__("horovod.{}".format(framework))

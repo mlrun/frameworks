@@ -43,6 +43,16 @@ class Callback(ABC):
         """
         self._objects = {}
 
+    def on_horovod_check(self, rank: int) -> bool:
+        """
+        Check whether this callback is fitting to run by the given horovod rank (worker).
+
+        :param rank: The horovod rank (worker) id.
+
+        :return: True if the callback is ok to run on this rank and false if not.
+        """
+        pass
+
     def on_setup(
         self,
         model: Module = None,

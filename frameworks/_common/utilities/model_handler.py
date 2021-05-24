@@ -1,7 +1,9 @@
-from typing import Union, List, Dict, Type
+import sys
+from typing import Union, List, Dict, Any
 from abc import ABC, abstractmethod
 import importlib.util
 import mlrun
+from mlrun.artifacts import Artifact
 
 
 class ModelHandler(ABC):
@@ -9,29 +11,51 @@ class ModelHandler(ABC):
     An abstract interface for handling a model of the supported frameworks.
     """
 
-    def __init__(self, model=None, context: mlrun.MLClientCtx = None):
+    def __init__(
+        self, model=None, model_name: str = "model", context: mlrun.MLClientCtx = None
+    ):
         """
         Initialize the handler. The model can be set here so it won't require loading.
-        :param model:   Model to handle or None in case a loading parameters were supplied.
-        :param context: MLRun context to work with for automatic loading and saving to the project directory.
+
+        :param model:      Model to handle or None in case a loading parameters were supplied.
+        :param model_name: The model name for saving and logging the model. Defaulted to 'model'.
+        :param context:    MLRun context to work with for automatic loading and saving to the project directory.
         """
         self._model = model
+        self._model_name = model_name
         self._context = context
 
     @property
     def model(self):
         """
         Get the handled model. Will return None in case the model is not initialized.
+
         :return: The handled model.
         """
         return self._model
 
+    def set_context(self, context: mlrun.MLClientCtx):
+        """
+        Set this handler MLRun context.
+
+        :param context: The context to set to.
+        """
+        self._context = context
+
     @abstractmethod
-    def save(self, output_path: str = None, *args, **kwargs):
+    def save(
+        self, output_path: str = None, update_paths: bool = True, *args, **kwargs
+    ) -> Union[Dict[str, Artifact], None]:
         """
         Save the handled model at the given output path.
-        :param output_path:  The full path to the directory / model's file to save the handled model at. If not given
-                             The context stored will be used to save the model in the defaulted location.
+
+        :param output_path:  The full path to the directory to save the handled model at. If not given, the context
+                             stored will be used to save the model in the defaulted location.
+        :param update_paths: Whether or not to update the model and weights paths to the newly saved model. Defaulted to
+                             True.
+
+        :return The saved model artifacts dictionary if context is available and None otherwise.
+
         :raise RuntimeError: In case there is no model initialized in this handler.
         :raise ValueError:   If an output path was not given, yet a context was not provided in initialization.
         """
@@ -44,6 +68,7 @@ class ModelHandler(ABC):
                 "An output path was not given and a context was not provided during the initialization of "
                 "this model handler. To save the model, one of the two parameters must be supplied."
             )
+        return None
 
     @abstractmethod
     def load(self, uid: str = None, epoch: int = None, *args, **kwargs):
@@ -51,8 +76,10 @@ class ModelHandler(ABC):
         Load the specified model in this handler. If a context was provided during initialization, the defaulted version
         of the model in the project will be loaded. To specify the model's version, its uid can be supplied along side
         an epoch for loading a callback of this run.
+
         :param uid:   To load a specific version of the model by the run uid that generated the model.
         :param epoch: To load a checkpoint of a given training (training's uid), add the checkpoint's epoch number.
+
         :raise ValueError: If a context was not provided during the handler initialization yet a uid was provided or if
                            an epoch was provided but a uid was not.
         """
@@ -69,13 +96,28 @@ class ModelHandler(ABC):
                 "handler initialization."
             )
 
+        # If a model instance is already loaded, delete it from memory:
+        if self._model:
+            del self._model
+
     @abstractmethod
-    def log(self):
+    def log(self, artifacts: Dict[str, Artifact]):
+        """
+        Log the model held by this handler into the MLRun context provided.
+
+        :param artifacts: Artifacts to log the model with.
+
+        :raise RuntimeError: In case there is no model in this handler.
+        :raise ValueError:   In case a context is missing.
+        """
+        if self._model is None:
+            raise RuntimeError(
+                "Model cannot be logged as it was not given in initialization or loaded during this run."
+            )
         if self._context is None:
             raise ValueError(
                 "Cannot log model if a context was not provided during initialization."
             )
-        # TODO: Implement the log model here!
 
     def _get_model_directory(self, uid: Union[str, None], epoch: Union[int, None]):
         # TODO: Need to decide on the file system architecture. Where will the project's models versions be saved. The
@@ -85,11 +127,14 @@ class ModelHandler(ABC):
         pass
 
     @staticmethod
-    def _import_module(classes_names: List[str], py_file_path: str) -> Dict[str, Type]:
+    def _import_module(classes_names: List[str], py_file_path: str) -> Dict[str, Any]:
         """
-        Import the given class by its name from the given python file as: from 'py_file_path' import 'class_name'.
+        Import the given class by its name from the given python file as: from 'py_file_path' import 'class_name'. If
+        the class specified is already imported, a reference would simply be returned.
+
         :param classes_names: The classes names to be imported from the given python file.
         :param py_file_path:  Path to the python file with the classes code.
+
         :return: The imported classes dictionary where the keys are the classes names and the values are their imported
                  classes.
         """
@@ -98,13 +143,17 @@ class ModelHandler(ABC):
 
         # Go through the given classes:
         for class_name in classes_names:
-            # Import the class:
-            spec = importlib.util.spec_from_file_location(
-                name=class_name, location=py_file_path
-            )
-            module = importlib.util.module_from_spec(spec=spec)
-            spec.loader.exec_module(module)
-            # Get the imported class and store it:
-            classes_imports[class_name] = getattr(module, class_name)
+            if class_name in sys.modules:
+                # It is already imported:
+                classes_imports[class_name] = sys.modules[class_name]
+            else:
+                # Import the class:
+                spec = importlib.util.spec_from_file_location(
+                    name=class_name, location=py_file_path
+                )
+                module = importlib.util.module_from_spec(spec=spec)
+                spec.loader.exec_module(module)
+                # Get the imported class and store it:
+                classes_imports[class_name] = getattr(module, class_name)
 
         return classes_imports

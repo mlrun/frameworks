@@ -155,6 +155,16 @@ class LoggingCallback(Callback):
         """
         return self._logger.validation_iterations
 
+    def on_horovod_check(self, rank: int) -> bool:
+        """
+        Check whether this callback is fitting to run by the given horovod rank (worker).
+
+        :param rank: The horovod rank (worker) id.
+
+        :return: True if the callback is ok to run on this rank and false if not.
+        """
+        return rank == 0
+
     def on_run_begin(self):
         """
         After the trainer / evaluator run begins, this method will be called to setup the results and hyperparameters

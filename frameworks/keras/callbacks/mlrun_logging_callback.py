@@ -69,10 +69,15 @@ class MLRunLoggingCallback(LoggingCallback):
         self._logger = MLRunLogger(context=context)
 
     def on_train_end(self, logs: dict = None):
-        # TODO: Need to finish up the model handler
-        pass
+        """
+        Called at the end of training, logging the model and the summaries of this run.
 
-    def on_epoch_end(self, epoch: int, logs: Dict[str, TrackableType] = None):
+        :param logs: Currently the output of the last call to `on_epoch_end()` is passed to this argument for this
+                     method but that may change in the future.
+        """
+        self._logger.log_run(model_handler=KerasModelHandler(model=self.model))
+
+    def on_epoch_end(self, epoch: int, logs: dict = None):
         """
         Called at the end of an epoch, logging the dynamic hyperparameters and results of this epoch via the stored
         context.

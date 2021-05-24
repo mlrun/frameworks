@@ -1,4 +1,4 @@
-from typing import Union, Tuple, List
+from typing import Union, Tuple, List, Type
 import sys
 from tabulate import tabulate
 from tqdm import tqdm
@@ -6,18 +6,21 @@ import torch
 from torch import Tensor
 from torch.nn import Module
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from torch.optim import Optimizer
 from mlrun.execution import MLClientCtx
-from frameworks._common.training.trainer import Trainer
-from frameworks.pytorch.callbacks.callback import (
+from frameworks.pytorch.callbacks import (
     Callback,
     MetricFunctionType,
     MetricValueType,
+    MLRunLoggingCallback,
+    TensorboardLoggingCallback,
 )
 from frameworks.pytorch.utilities.callbacks_handler import CallbacksHandler
+from frameworks.pytorch.utilities.horovod_handler import PyTorchHorovodHandler
 
 
-class PyTorchTrainer(Trainer):
+class PyTorchTrainer:
     """
     An interface for a pytorch model trainer, supporting the package's loggers and automatic logging.
     """
@@ -79,17 +82,65 @@ class PyTorchTrainer(Trainer):
             else validation_iterations
         )
 
-    def run(self, callbacks: List[Callback] = None, use_horovod: bool = False):
+    def run(
+        self,
+        callbacks: List[Callback] = None,
+        use_cuda: bool = True,
+        use_horovod: bool = False,
+    ):
         """
         Run the trainer training process on his initialized configuration.
-        :param callbacks: The loggers to use on this run.
-        """
-        # Initialize a loggers handler:
-        callbacks_handler = CallbacksHandler(
-            callbacks=callbacks if callbacks is not None else []
-        )
 
-        # Setup the loggers functions:
+        :param callbacks:   The loggers to use on this run.
+        :param use_cuda:    Whether or not to use cuda. Only relevant if cuda is available. Defaulted to True.
+        :param use_horovod: Whether or not to use horovod - a distributed training framework. Defaulted to False.
+        """
+        # Setup horovod:
+        hvd = None
+        if use_horovod:
+            PyTorchHorovodHandler.import_horovod()
+            hvd = PyTorchHorovodHandler.get_horovod()
+            hvd.init()
+
+        # Setup cuda:
+        if use_cuda and torch.cuda.is_available():
+            if use_horovod:
+                torch.cuda.set_device(hvd.local_rank())
+            self._model.cuda()
+
+        # Initialize a callbacks handler:
+        callbacks = callbacks if callbacks is not None else []
+        if use_horovod:
+            callbacks_handler = CallbacksHandler(
+                callbacks=[
+                    callback
+                    for callback in callbacks
+                    if callback.on_horovod_check(rank=hvd.local_rank())
+                ]
+            )
+        else:
+            callbacks_handler = CallbacksHandler(callbacks=callbacks)
+
+        # Prepare horovod for the run:
+        if use_horovod:
+            # Partition dataset among workers using DistributedSampler:
+            self._training_set.sampler = DistributedSampler(
+                self._training_set.dataset, num_replicas=hvd.size(), rank=hvd.rank()
+            )
+            if self._validation_set:
+                self._validation_set.sampler = DistributedSampler(
+                    self._validation_set.dataset,
+                    num_replicas=hvd.size(),
+                    rank=hvd.rank(),
+                )
+            # Add Horovod Distributed Optimizer:
+            self._optimizer = hvd.DistributedOptimizer(
+                self._optimizer, named_parameters=self._model.named_parameters()
+            )
+            # Broadcast parameters from rank 0 to all other processes:
+            hvd.broadcast_parameters(self._model.state_dict(), root_rank=0)
+
+        # Setup the callbacks functions:
         callbacks_handler.on_setup(
             model=self._model,
             training_set=self._training_set,
@@ -100,7 +151,7 @@ class PyTorchTrainer(Trainer):
             scheduler=self._scheduler,
         )
 
-        # Beginning of run loggers:
+        # Beginning of run callbacks:
         callbacks_handler.on_run_begin()
 
         # Start the epochs:
@@ -115,7 +166,7 @@ class PyTorchTrainer(Trainer):
 
             # Train:
             callbacks_handler.on_train_begin()
-            self._train(callbacks_handler=callbacks_handler)
+            self._train(callbacks_handler=callbacks_handler, use_cuda=use_cuda)
             if not callbacks_handler.on_train_end():
                 break
 
@@ -123,7 +174,7 @@ class PyTorchTrainer(Trainer):
             if self._validation_set is not None:
                 callbacks_handler.on_validation_begin()
                 loss_value, metric_values = self._validate(
-                    callbacks_handler=callbacks_handler
+                    callbacks_handler=callbacks_handler, use_cuda=use_cuda
                 )
                 self._print_results(loss_value=loss_value, metric_values=metric_values)
                 if not callbacks_handler.on_validation_end(
@@ -145,18 +196,53 @@ class PyTorchTrainer(Trainer):
         # End of run loggers:
         callbacks_handler.on_run_end()
 
-    def auto_log(self, context: MLClientCtx):
+    def auto_log(
+        self,
+        context: MLClientCtx,
+        use_cuda: bool = True,
+        use_horovod: bool = False,
+    ):
         """
-        Run training with automatic logging to mlrun's context and tensorboard.
-        :param context: The context to use for the logs.
+        Run training with automatic logging to MLRun's context and Tensorboard. For further features of logging to both
+        MLRun and Tensorboard, see 'pytorch.callbacks.MLRunLoggingCallback' and
+        'pytorch.callbacks.TensorboardLoggingCallback'.
+
+        :param context:     The context to use for the logs.
+        :param use_cuda:    Whether or not to use cuda. Only relevant if cuda is available. Defaulted to True.
+        :param use_horovod: Whether or not to use horovod - a distributed training framework. Defaulted to False.
         """
-        raise NotImplementedError
+        static_hyperparameters = {
+            "Batch Size": self._training_set.batch_size,
+            "Epochs": self._epochs,
+            "Training Iterations": self._training_iterations,
+            "Validation Iterations": self._validation_iterations,
+        }
+        dynamic_hyperparameters = {}  # TODO: Try to get the learning rate from the optimizer
+        self.run(
+            callbacks=[
+                MLRunLoggingCallback(
+                    context=context,
+                    static_hyperparameters=static_hyperparameters,
+                    dynamic_hyperparameters=dynamic_hyperparameters,
+                ),
+                TensorboardLoggingCallback(
+                    context=context,
+                    static_hyperparameters=static_hyperparameters,
+                    dynamic_hyperparameters=dynamic_hyperparameters,
+                    weights=True,
+                ),
+            ],
+            use_cuda=use_cuda,
+            use_horovod=use_horovod,
+        )
 
     def _metrics(self, y_pred: Tensor, y_true: Tensor) -> List[float]:
         """
         Call all the metrics on the given batch's truth and prediction output.
+
         :param y_pred: The batch's truth value.
         :param y_true: The model's output for the related input.
+
         :return: A list with each metric result.
         """
         accuracies = []
@@ -164,10 +250,12 @@ class PyTorchTrainer(Trainer):
             accuracies.append(metric_function(y_pred, y_true))
         return accuracies
 
-    def _train(self, callbacks_handler: CallbacksHandler):
+    def _train(self, callbacks_handler: CallbacksHandler, use_cuda: bool):
         """
         Initiate a single epoch training.
+
         :param callbacks_handler: Callbacks handler to use.
+        :param use_cuda:          Whether or not to use cuda if available.
         """
         # Set model to train mode:
         self._model.train()
@@ -188,11 +276,12 @@ class PyTorchTrainer(Trainer):
         for batch, (x, y_true) in progress_bar:
             if batch == self._training_iterations:
                 break
-            # Beginning of a batch loggers:
+
+            # Beginning of a batch callbacks:
             callbacks_handler.on_train_batch_begin(batch=batch, x=x, y_true=y_true)
-            if torch.cuda.is_available():
-                x = x.cuda(non_blocking=True)
-                y_true = y_true.cuda(non_blocking=True)
+            if use_cuda and torch.cuda.is_available():
+                x = x.cuda()
+                y_true = y_true.cuda()
 
             # Infer the input:
             y_pred = self._model(x)
@@ -219,18 +308,23 @@ class PyTorchTrainer(Trainer):
             self._optimizer.zero_grad()
             callbacks_handler.on_optimizer_step_end()
 
-            # End of batch loggers:
+            # End of batch callbacks:
             if not callbacks_handler.on_train_batch_end(
                 batch=batch, x=x, y_true=y_true, y_pred=y_pred
             ):
                 break
 
     def _validate(
-        self, callbacks_handler: CallbacksHandler
+        self,
+        callbacks_handler: CallbacksHandler,
+        use_cuda: bool,
     ) -> Tuple[MetricValueType, List[MetricValueType]]:
         """
         Initiate a single epoch validation.
+
         :param callbacks_handler: Callbacks handler to use.
+        :param use_cuda:          Whether or not to use cuda if available.
+
         :return: A tuple of the validation summary:
                  [0] = Validation loss value summary.
                  [1] = A list of metrics summaries.
@@ -257,13 +351,14 @@ class PyTorchTrainer(Trainer):
             for batch, (x, y_true) in progress_bar:
                 if batch == self._validation_iterations:
                     break
-                # Beginning of a batch loggers:
+
+                # Beginning of a batch callbacks:
                 callbacks_handler.on_validation_batch_begin(
                     batch=batch, x=x, y_true=y_true
                 )
-                if torch.cuda.is_available():
-                    x = x.cuda(non_blocking=True)
-                    y_true = y_true.cuda(non_blocking=True)
+                if use_cuda and torch.cuda.is_available():
+                    x = x.cuda()
+                    y_true = y_true.cuda()
 
                 # Infer the input:
                 y_pred = self._model(x)
@@ -283,7 +378,7 @@ class PyTorchTrainer(Trainer):
                 losses.append(loss_value)
                 metrics.append(metric_values)
 
-                # End of batch loggers:
+                # End of batch callbacks:
                 if not callbacks_handler.on_validation_batch_end(
                     batch=batch, x=x, y_true=y_true, y_pred=y_pred
                 ):
@@ -297,6 +392,7 @@ class PyTorchTrainer(Trainer):
     def _print_results(self, loss_value: Tensor, metric_values: List[float]):
         """
         Print the given result between each epoch.
+
         :param loss_value:    The loss result to print.
         :param metric_values: The metrics result to print.
         """

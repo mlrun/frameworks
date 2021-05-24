@@ -34,8 +34,6 @@ FRAMEWORKS_PACKAGES = {
         "frameworks",
         "frameworks._common",
         "frameworks._common.utilities",
-        "frameworks._common.training",
-        "frameworks._common.evaluation",
         "frameworks._common.loggers",
     ],
     FrameworkKeys.PYTORCH: [
@@ -125,6 +123,7 @@ class InstallCommand(install):
 def get_requirements() -> List[str]:
     """
     Get the full requirements list from the user's frameworks input and their 'requirements.txt' files.
+
     :return: List of all the packages requirements.
     """
     # Initialize the requirements list:

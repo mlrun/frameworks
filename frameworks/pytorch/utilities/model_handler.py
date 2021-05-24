@@ -1,8 +1,13 @@
 from typing import Union, List, Dict, Type
+import os
+
 import torch
 from torch.nn import Module
+
 import mlrun
-from frameworks._common.utilities.model_handler import ModelHandler
+from mlrun.artifacts import Artifact
+
+from frameworks._common.utilities import ModelHandler
 
 
 class PyTorchModelHandler(ModelHandler):
@@ -15,31 +20,41 @@ class PyTorchModelHandler(ModelHandler):
         model_class: Union[Type[Module], str],
         custom_objects: Dict[Union[str, List[str]], str],
         model: Module = None,
+        model_name: str = None,
         pt_file_path: str = None,
-        context: mlrun.MLClientCtx = None
+        context: mlrun.MLClientCtx = None,
     ):
         """
         Initialize the handler. The model can be set here so it won't require loading.
+
         :param model_class:    The model's class type object. Can be passed as the class's name (string) as well.
         :param custom_objects: Custom objects the model is using. Expecting a dictionary with the classes names to
                                import as keys (if multiple classes needed to be imported from the same py file a
                                list can be given) and the python file from where to import them as their values. The
                                model class itself must be specified in order to properly save it for later being loaded
-                               with a handler. For exmaple:
+                               with a handler. For example:
                                {
                                    "class_name": "/path/to/model.py",
                                    ["layer1", "layer2"]: "/path/to/custom_layers.py"
                                }
         :param model:          Model to handle or None in case a loading parameters were supplied.
+        :param model_name:     The model name for saving and logging the model. Defaulted to the given model class.
         :param pt_file_path:   The model's saved '.pt' file with its tensors and attributes to load.
         :param context:        Context to save, load and log the model.
         """
-        # Set the model if given:
-        super(PyTorchModelHandler, self).__init__(model=model,
-                                                  context=context)
+        # Setup the handler with name, context and model:
+        if model_name is None:
+            model_name = (
+                model_class if isinstance(model_class, str) else model_class.__name__
+            )
+        super(PyTorchModelHandler, self).__init__(
+            model=model, model_name=model_name, context=context
+        )
 
         # Setup the initial model properties:
-        self._custom_objects_sources = custom_objects if custom_objects is not None else {}
+        self._custom_objects_sources = (
+            custom_objects if custom_objects is not None else {}
+        )
         self._imported_custom_objects = {}  # type: Dict[str, Type]
         self._pt_file_path = pt_file_path
         self._class_name = None  # type: str
@@ -68,16 +83,29 @@ class PyTorchModelHandler(ModelHandler):
             self._class = model_class
             self._class_name = model_class.__name__
 
-    def save(self, output_path: str = None, *args, **kwargs):
+    def save(
+        self, output_path: str = None, update_paths: bool = True, *args, **kwargs
+    ) -> Union[Dict[str, Artifact], None]:
         """
         Save the handled model at the given output path.
-        :param output_path: The full path to the directory and the model's file in it to save the handled model at.
+
+        :param output_path:  The full path to the directory to save the handled model at. If not given, the context
+                             stored will be used to save the model in the defaulted location.
+        :param update_paths: Whether or not to update the model and weights paths to the newly saved model. Defaulted to
+                             True.
+
+        :return The saved model artifacts dictionary if context is available and None otherwise.
+
         :raise RuntimeError: In case there is no model initialized in this handler.
+        :raise ValueError:   If an output path was not given, yet a context was not provided in initialization.
         """
         super(PyTorchModelHandler, self).save(output_path=output_path)
-        torch.save({
-            self._model.state_dict()
-        }, output_path)
+
+        if output_path is None:
+            output_path = self._context.artifact_path
+        pt_file_path = os.path.join(output_path, "{}.pt".format(self._model_name))
+        torch.save({self._model.state_dict()}, pt_file_path)
+        # TODO: Log and return this artifact
 
     def load(self, uid: str = None, epoch: int = None, *args, **kwargs):
         """
@@ -85,14 +113,14 @@ class PyTorchModelHandler(ModelHandler):
         the args and kwargs parameters. If a context was provided during initialization, the defaulted version
         of the model in the project will be loaded. To specify the model's version, its uid can be supplied along side
         an epoch for loading a callback of this run.
+
         :param uid:   To load a specific version of the model by the run uid that generated the model.
         :param epoch: To load a checkpoint of a given training, add the checkpoint's epoch number.
+
         :raise ValueError: If a context was not provided during the handler initialization yet a uid was provided or if
                            an epoch was provided but a uid was not.
         """
-        # If a model instance is already loaded, delete it from memory:
-        if self._model:
-            del self._model
+        super(PyTorchModelHandler, self).load(uid=uid, epoch=epoch)
 
         # Initialize the model:
         self._model = self._class(*args, **kwargs)
@@ -100,7 +128,24 @@ class PyTorchModelHandler(ModelHandler):
         # Load the state dictionary into it:
         self._model.load_state_dict(torch.load(self._pt_file_path))
 
+    def log(self, artifacts: Dict[str, Artifact]):
+        """
+        Log the model held by this handler into the MLRun context provided.
+
+        :param artifacts: Artifacts to log the model with.
+
+        :raise RuntimeError: In case there is no model in this handler.
+        :raise ValueError:   In case a context is missing.
+        """
+        super(PyTorchModelHandler, self).log(artifacts=artifacts)
+
+        # TODO: Finish logging the model.
+
     def _import_custom_objects(self):
+        """
+        Import the custom objects from the 'self._custom_objects_sources' dictionary into the
+        'self._imported_custom_objects'.
+        """
         if self._custom_objects_sources:
             for classes_names, py_file in self._custom_objects_sources.items():
                 self._imported_custom_objects = self._import_module(
