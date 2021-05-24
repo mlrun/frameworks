@@ -100,9 +100,11 @@ class MLRunLogger(Logger):
                 chart_artifact = ChartArtifact(
                     key="{}.html".format(chart_name),
                     header=["iteration", metric_name],
-                    data=np.array(
-                        [list(np.arange(len(metric_epochs[-1]))), metric_epochs[-1]]
-                    ).transpose(),
+                    data=list(
+                        np.array(
+                            [list(np.arange(len(metric_epochs[-1]))), metric_epochs[-1]]
+                        ).transpose()
+                    ),
                 )
                 # Log the artifact:
                 child_context.log_artifact(
@@ -138,9 +140,11 @@ class MLRunLogger(Logger):
             chart_artifact = ChartArtifact(
                 key="{}.html".format(chart_name),
                 header=["epoch", metric_name],
-                data=np.array(
-                    [list(np.arange(len(metric_values))), metric_values]
-                ).transpose(),
+                data=list(
+                    np.array(
+                        [list(np.arange(len(metric_values))), metric_values]
+                    ).transpose()
+                ),
             )
             # Log the artifact:
             self._context.log_artifact(
@@ -157,9 +161,11 @@ class MLRunLogger(Logger):
             chart_artifact = ChartArtifact(
                 key="{}.html".format(chart_name),
                 header=["epoch", parameter_name],
-                data=np.array(
-                    [list(np.arange(len(parameter_values))), parameter_values]
-                ).transpose(),
+                data=list(
+                    np.array(
+                        [list(np.arange(len(parameter_values))), parameter_values]
+                    ).transpose()
+                ),
             )
             # Log the artifact:
             self._context.log_artifact(
