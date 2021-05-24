@@ -184,7 +184,7 @@ class _KerasTensorboardLogger(TensorboardLogger):
                     )
                     summary_ops_v2.keras_model(name=model.name, data=model, step=batch)
             elif tf.__version__ == "2.5.0":
-                from tensorflow.keras.callbacks import keras_model_summary
+                from tensorflow.python.keras.callbacks import keras_model_summary
                 with summary_ops_v2.record_if(True):
                     keras_model_summary('keras', model, step=0)
                 summary_ops_v2.trace_export(
