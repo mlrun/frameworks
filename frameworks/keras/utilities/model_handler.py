@@ -187,7 +187,6 @@ class KerasModelHandler(ModelHandler):
                     local_path=os.path.basename(model_path),
                     db_key=False,
                 )
-
         if weights_path:
             self._weights_path = weights_path
             if self._context:
@@ -240,7 +239,8 @@ class KerasModelHandler(ModelHandler):
         self._context.log_model(
             self._model.name,
             model_file=os.path.basename(self._model_path),
-            labels={"framework": "tensorflow.keras", "save format": self._save_format},
+            framework="tensorflow.keras",
+            labels={"framework": "tensorflow.keras", "save-format": self._save_format},
             metrics=self._context.results,
             extra_data={
                 **model_artifacts,
