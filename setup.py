@@ -41,7 +41,7 @@ FRAMEWORKS_PACKAGES = {
         "frameworks.pytorch.utilities",
         "frameworks.pytorch.training",
         "frameworks.pytorch.evaluation",
-        "frameworks.pytorch.loggers",
+        "frameworks.pytorch.callbacks",
     ],
     # FrameworkKeys.LIGHTNING: ["frameworks.lightning"],
     # FrameworkKeys.TENSORFLOW: ["frameworks.tensorflow"],
@@ -50,7 +50,7 @@ FRAMEWORKS_PACKAGES = {
         "frameworks.keras.utilities",
         "frameworks.keras.training",
         "frameworks.keras.evaluation",
-        "frameworks.keras.loggers",
+        "frameworks.keras.callbacks",
     ],
 }
 
