@@ -32,7 +32,7 @@ def get_auto_logging_callbacks(
 
     :return: The initialized logging callbacks of MLRun.
     """
-    dynamic_hyperparameters = {"learning rate": ["optimizer", "lr"]}
+    dynamic_hyperparameters = {"learning_rate": ["optimizer", "lr"]}
     return [
         MLRunLoggingCallback(
             context=context,

@@ -105,8 +105,10 @@ class _PyTorchTensorboardLogger(TensorboardLogger):
 
         # Prepare the summaries values and the dynamic hyperparameters values:
         graph_parameters = {}
-        for metric in self._summaries:
-            graph_parameters["{}/{}".format(self._Sections.SUMMARY, metric)] = 0.0
+        for metric in self._training_summaries:
+            graph_parameters["{}/training_{}".format(self._Sections.SUMMARY, metric)] = 0.0
+        for metric in self._validation_summaries:
+            graph_parameters["{}/validation_{}".format(self._Sections.SUMMARY, metric)] = 0.0
         for parameter, epochs in self._dynamic_hyperparameters.items():
             graph_parameters[
                 "{}/{}".format(self._Sections.HYPERPARAMETERS, parameter)
@@ -152,12 +154,16 @@ class _PyTorchTensorboardLogger(TensorboardLogger):
         """
         Log the recent epoch summaries results to tensorboard.
         """
-        for metric, epochs in self._summaries.items():
-            self._summary_writer.add_scalar(
-                tag="{}/{}".format(self._Sections.SUMMARY, metric),
-                scalar_value=epochs[-1],
-                global_step=self._epochs,
-            )
+        for prefix, summaries in zip(
+            ["training, validation"],
+            [self._training_summaries, self._validation_summaries],
+        ):
+            for metric, epochs in summaries.items():
+                self._summary_writer.add_scalar(
+                    tag="{}/{}_{}".format(self._Sections.SUMMARY, prefix, metric),
+                    scalar_value=epochs[-1],
+                    global_step=self._epochs,
+                )
 
     def log_weights_histograms_to_tensorboard(self):
         """

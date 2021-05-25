@@ -120,10 +120,7 @@ class ModelHandler(ABC):
             )
 
     def _get_model_directory(self, uid: Union[str, None], epoch: Union[int, None]):
-        # TODO: Need to decide on the file system architecture. Where will the project's models versions be saved. The
-        #       current idea is for the models to be specified by their function's uid or a version string (more
-        #       suitable...) and for each project there will be a models.json file where each model will have his own
-        #       default version to be loaded.
+        # TODO: Implement using tags in db
         pass
 
     @staticmethod

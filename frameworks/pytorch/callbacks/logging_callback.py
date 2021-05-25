@@ -129,7 +129,7 @@ class LoggingCallback(Callback):
 
         :return: The validation summaries.
         """
-        return self._logger.summaries
+        return self._logger.validation_summaries
 
     def get_epochs(self) -> int:
         """
@@ -145,7 +145,7 @@ class LoggingCallback(Callback):
 
         :return: The overall train iterations this callback participated in.
         """
-        return self._logger.train_iterations
+        return self._logger.training_iterations
 
     def get_validation_iterations(self) -> int:
         """
@@ -264,7 +264,7 @@ class LoggingCallback(Callback):
         :param metric_values: The metrics summaries of this validation.
         """
         # Store the validation loss average of this epoch:
-        self._logger.log_summary(
+        self._logger.log_validation_summary(
             metric_name=self._get_metric_name(
                 metric_type=self._MetricType.LOSS,
                 metric_function=self._objects[self._ObjectKeys.LOSS_FUNCTION],
@@ -276,7 +276,7 @@ class LoggingCallback(Callback):
         for metric_function, metric_value in zip(
             self._objects[self._ObjectKeys.METRIC_FUNCTIONS], metric_values
         ):
-            self._logger.log_summary(
+            self._logger.log_validation_summary(
                 metric_name=self._get_metric_name(
                     metric_type=self._MetricType.ACCURACY,
                     metric_function=metric_function,

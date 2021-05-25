@@ -69,7 +69,7 @@ class LoggingCallback(Callback):
 
         # Setup the flags:
         self._log_iteration = False
-        self._run_set_up = False
+        self._call_setup_run = True
 
     def get_training_results(self) -> Dict[str, List[List[float]]]:
         """
@@ -91,6 +91,24 @@ class LoggingCallback(Callback):
         """
         return self._logger.validation_results
 
+    def get_training_summaries(self) -> Dict[str, List[float]]:
+        """
+        Get the training summaries of the metrics results. The summaries will be stored in a dictionary where each key
+        is the metric names and the value is a list of all the summary values per epoch.
+
+        :return: The training summaries.
+        """
+        return self._logger.training_summaries
+
+    def get_validation_summaries(self) -> Dict[str, List[float]]:
+        """
+        Get the validation summaries of the metrics results. The summaries will be stored in a dictionary where each key
+        is the metric names and the value is a list of all the summary values per epoch.
+
+        :return: The validation summaries.
+        """
+        return self._logger.validation_summaries
+
     def get_static_hyperparameters(self) -> Dict[str, TrackableType]:
         """
         Get the static hyperparameters logged. The hyperparameters will be stored in a dictionary where each key is the
@@ -109,15 +127,6 @@ class LoggingCallback(Callback):
         """
         return self._logger.dynamic_hyperparameters
 
-    def get_summaries(self) -> Dict[str, List[float]]:
-        """
-        Get the validation summaries of the metrics results. The summaries will be stored in a dictionary where each key
-        is the metric names and the value is a list of all the summary values per epoch.
-
-        :return: The validation summaries.
-        """
-        return self._logger.summaries
-
     def get_epochs(self) -> int:
         """
         Get the overall epochs this callback participated in.
@@ -126,13 +135,13 @@ class LoggingCallback(Callback):
         """
         return self._logger.epochs
 
-    def get_train_iterations(self) -> int:
+    def get_training_iterations(self) -> int:
         """
-        Get the overall train iterations this callback participated in.
+        Get the overall training iterations this callback participated in.
 
-        :return: The overall train iterations this callback participated in.
+        :return: The overall training iterations this callback participated in.
         """
-        return self._logger.train_iterations
+        return self._logger.training_iterations
 
     def get_validation_iterations(self) -> int:
         """
@@ -160,7 +169,7 @@ class LoggingCallback(Callback):
                      future.
         """
         # If this callback is part of evaluation and not training, need to check if the run was setup:
-        if not self._run_set_up:
+        if self._call_setup_run:
             self._setup_run()
 
     def on_test_end(self, logs: dict = None):
@@ -174,9 +183,9 @@ class LoggingCallback(Callback):
         # Store the metrics average of this epoch:
         for metric_name, epoch_values in self._logger.validation_results.items():
             # Check if needed to initialize:
-            if metric_name not in self._logger.summaries:
-                self._logger.summaries[metric_name] = []
-            self._logger.log_summary(
+            if metric_name not in self._logger.validation_summaries:
+                self._logger.validation_summaries[metric_name] = []
+            self._logger.log_validation_summary(
                 metric_name=metric_name,
                 result=float(sum(epoch_values[-1]) / len(epoch_values[-1])),
             )
@@ -199,13 +208,22 @@ class LoggingCallback(Callback):
 
     def on_epoch_end(self, epoch: int, logs: dict = None):
         """
-        Called at the end of an epoch, logging the current dynamic hyperparameters values.
+        Called at the end of an epoch, logging the training summaries and the current dynamic hyperparameters values.
 
         :param epoch: Integer, index of epoch.
         :param logs:  Metric results for this training epoch, and for the validation epoch if validation is
                       performed. Validation result keys are prefixed with `val_`. For training epoch, the values of the
                       `Model`'s metrics are returned. Example : `{'loss': 0.2, 'acc': 0.7}`.
         """
+        # Store the last training result of this epoch:
+        for metric_name, epoch_values in self._logger.training_results.items():
+            # Check if needed to initialize:
+            if metric_name not in self._logger.training_summaries:
+                self._logger.training_summaries[metric_name] = []
+            self._logger.log_training_summary(
+                metric_name=metric_name, result=float(epoch_values[-1][-1])
+            )
+
         # Update the dynamic hyperparameters dictionary:
         if self._dynamic_hyperparameters_keys:
             for name, key_chain in self._dynamic_hyperparameters_keys.items():
@@ -301,7 +319,7 @@ class LoggingCallback(Callback):
                 )
 
         # Mark this run was set up:
-        self._run_set_up = True
+        self._call_setup_run = False
 
     def _on_batch_begin(self, batch: int):
         """
@@ -323,10 +341,11 @@ class LoggingCallback(Callback):
         if not self._log_iteration:
             return
 
+        # Parse the metrics names in the logs:
+        logs = self._parse_metrics(logs=logs)
+
         # Log the given metrics as needed:
-        for metric_name_in_log, aggregated_value in logs.items():
-            # Get the metric name:
-            metric_name = self._get_metric_name(metric_name_in_log=metric_name_in_log)
+        for metric_name, aggregated_value in logs.items():
             # Check if needed to initialize:
             if metric_name not in results_dictionary:
                 results_dictionary[metric_name] = [[]]
@@ -398,18 +417,19 @@ class LoggingCallback(Callback):
             )
         return value
 
-    def _get_metric_name(self, metric_name_in_log: str):
+    @staticmethod
+    def _parse_metrics(logs: dict) -> dict:
         """
-        Get the given metric name.
+        Parse the default logs dictionary metrics names to be clean (without the 'val_' prefix).
 
-        :param metric_name_in_log: The metric function name given from the 'logs' dictionary.
+        :param logs: The logs given from a callback method.
 
-        :return: The metric name.
+        :return: The parsed logs.
         """
-        metric_type = self._MetricType.ACCURACY
-        if metric_name_in_log.startswith("val_"):
-            metric_name_in_log = metric_name_in_log.split("val_")[1]
-        if metric_name_in_log == "loss":
-            metric_name_in_log = self.model.loss
-            metric_type = self._MetricType.LOSS
-        return "{}:{}".format(metric_name_in_log, metric_type)
+        parsed_logs = {}
+        for metric, value in logs.items():
+            if metric.startswith("val_"):
+                metric = metric[4:]
+            parsed_logs[metric] = value
+
+        return parsed_logs

@@ -2,12 +2,17 @@ from typing import Union, Dict, List, Tuple, Callable, TypeVar, Generic
 from abc import abstractmethod
 import os
 from datetime import datetime
-import numpy as np
-import mlrun
-from mlrun import MLClientCtx
-from frameworks._common.loggers.logger import Logger
+import json
+
 from tensorflow import Variable as TensorflowWeight
 from torch.nn import Parameter as PyTorchWeight
+
+import mlrun
+from mlrun.config import config
+from mlrun import MLClientCtx
+
+from frameworks._common.loggers.logger import Logger
+
 
 # Define a type variable for the different weight holder objects of the supported frameworks:
 Weight = TypeVar("Weight", TensorflowWeight, PyTorchWeight)
@@ -52,9 +57,7 @@ class TensorboardLogger(Logger, Generic[Weight]):
 
     def __init__(
         self,
-        statistics_functions: List[
-            Callable[[Union[Weight]], Union[float, Weight]]
-        ],
+        statistics_functions: List[Callable[[Union[Weight]], Union[float, Weight]]],
         context: MLClientCtx = None,
         tensorboard_directory: str = None,
         run_name: str = None,
@@ -93,7 +96,9 @@ class TensorboardLogger(Logger, Generic[Weight]):
         # [Statistic: str] -> [Weight: str] -> [epoch: int] -> [value: float]
         self._weights_statistics = {}  # type: Dict[str, Dict[str, List[float]]]
         for statistic_function in self._statistics_functions:
-            self._weights_statistics[statistic_function.__name__] = {}  # type: Dict[str, List[float]]
+            self._weights_statistics[
+                statistic_function.__name__
+            ] = {}  # type: Dict[str, List[float]]
 
     @property
     def weights(self):
@@ -235,15 +240,7 @@ class TensorboardLogger(Logger, Generic[Weight]):
             )
 
         # Check if a context is available:
-        if self._context:
-            # Try to get the 'tensorboard_dir' parameter:
-            tensorboard_directory = self._context.get_param("tensorboard_dir")
-            if tensorboard_directory is None:
-                # The parameter was not given, set the directory to the default value:
-                tensorboard_directory = self._DEFAULT_TENSORBOARD_DIRECTORY.replace(
-                    "{{project}}", self._context.project
-                )
-        else:
+        if tensorboard_directory is not None:
             # Create the main tensorboard directory:
             os.makedirs(tensorboard_directory, exist_ok=True)
             # Index the run name according to the tensorboard directory content:
@@ -253,9 +250,21 @@ class TensorboardLogger(Logger, Generic[Weight]):
                     "_", 1
                 )  # type: List[str] # [0] = name, [1] = index
                 if run_name == existing_run[0]:
-                    index = int(existing_run[1]) + 1
-            # Build the full run name:
-            run_name = "{}_{}".format(run_name, index)
+                    index += 1
+            # Check if need to index the name:
+            if index > 1:
+                run_name = "{}_{}".format(run_name, index)
+        else:
+            # Try to get the 'tensorboard_dir' parameter:
+            tensorboard_directory = self._context.get_param("tensorboard_dir")
+            if tensorboard_directory is None:
+                # The parameter was not given, set the directory to the default value:
+                tensorboard_directory = self._DEFAULT_TENSORBOARD_DIRECTORY.replace(
+                    "{{project}}", self._context.project
+                )
+                if not os.access(tensorboard_directory, os.W_OK):
+                    # The tensorboard default directory is not writable, change to the artifact path:
+                    tensorboard_directory = self._context.artifact_path
 
         # Create the output path:
         output_path = os.path.join(tensorboard_directory, run_name)
@@ -263,12 +272,28 @@ class TensorboardLogger(Logger, Generic[Weight]):
 
         return output_path, run_name
 
-    def _parse_context_summary(self) -> str:
+    def _parse_context_summary(self) -> Tuple[str, str]:
         """
-        Parse and return the run summary string to log into tensorboard as text.
+        Parse and return the run summary - a hyperlink for the job in MLRun and the context metadata as strings to log
+        into tensorboard as text.
 
-        :return: The run summary string.
+        :return: A tuple of the parsed strings:
+                 [0] = The job hyperlink to MLRun.
+                 [1] = The context metadata json as string.
         """
-        # TODO: take a look in mlrun/mlrun/render.py and see the uid_template html hyperlink and put it the text
-        #       summary. Add context meta-data.
-        return "Testing testing"
+        # Parse the hyperlink:
+        hyperlink = (
+            '<a href="{}/{}/{}/jobs/monitor/{}/overview" ' 'target="_blank" >...{}</a>'
+        ).format(
+            config.resolve_ui_url(),
+            config.ui.projects_prefix,
+            self._context.project,
+            self._context.uid,
+            self._context.uid[-8:],
+        )
+
+        # Parse the context meta data as a json string:
+        json_metadata = json.dumps(self._context.to_dict(), indent=4)
+        metadata = "".join("\t" + line for line in json_metadata.splitlines(True))
+
+        return hyperlink, metadata

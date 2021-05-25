@@ -238,7 +238,7 @@ class KerasModelHandler(ModelHandler):
         # Log the model:
         self._context.log_model(
             self._model.name,
-            model_file=os.path.basename(self._model_path),
+            model_file=self._model_path,
             framework="tensorflow.keras",
             labels={"framework": "tensorflow.keras", "save-format": self._save_format},
             metrics=self._context.results,

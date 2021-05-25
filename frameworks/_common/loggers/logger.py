@@ -14,14 +14,15 @@ class Logger:
         """
         Initialize a generic logger for collecting trainig / validation runs data.
         """
-        # Setup the results dictionary - a dictionary of metrics for all the iteration results by their epochs:
+        # Setup the results dictionaries - a dictionary of metrics for all the iteration results by their epochs:
         # [Metric: str] -> [Epoch: int] -> [Iteration: int] -> [value: float]
         self._training_results = {}  # type: Dict[str, List[List[float]]]
         self._validation_results = {}  # type: Dict[str, List[List[float]]]
 
-        # Setup the metrics summary dictionary - a dictionary of all validation metrics averages by epochs:
+        # Setup the metrics summary dictionaries - a dictionary of all metrics averages by epochs:
         # [Metric: str] -> [Epoch: int] -> [value: float]:
-        self._summaries = {}  # type: Dict[str, List[float]]
+        self._training_summaries = {}  # type: Dict[str, List[float]]
+        self._validation_summaries = {}  # type: Dict[str, List[float]]
 
         # Store the static hyperparameters given - a dictionary of parameters and their values to note:
         # [Parameter: str] -> [value: Union[str, bool, float, int]]
@@ -57,6 +58,24 @@ class Logger:
         return self._validation_results
 
     @property
+    def training_summaries(self) -> Dict[str, List[float]]:
+        """
+        Get the training summaries of the metrics results. The summaries will be stored in a dictionary where each key
+        is the metric names and the value is a list of all the summary values per epoch.
+        :return: The training summaries.
+        """
+        return self._training_summaries
+
+    @property
+    def validation_summaries(self) -> Dict[str, List[float]]:
+        """
+        Get the validation summaries of the metrics results. The summaries will be stored in a dictionary where each key
+        is the metric names and the value is a list of all the summary values per epoch.
+        :return: The validation summaries.
+        """
+        return self._validation_summaries
+
+    @property
     def static_hyperparameters(self) -> Dict[str, TrackableType]:
         """
         Get the static hyperparameters logged. The hyperparameters will be stored in a dictionary where each key is the
@@ -75,15 +94,6 @@ class Logger:
         return self._dynamic_hyperparameters
 
     @property
-    def summaries(self) -> Dict[str, List[float]]:
-        """
-        Get the validation summaries of the metrics results. The summaries will be stored in a dictionary where each key
-        is the metric names and the value is a list of all the summary values per epoch.
-        :return: The validation summaries.
-        """
-        return self._summaries
-
-    @property
     def epochs(self) -> int:
         """
         Get the overall epochs.
@@ -92,10 +102,10 @@ class Logger:
         return self._epochs
 
     @property
-    def train_iterations(self) -> int:
+    def training_iterations(self) -> int:
         """
-        Get the overall train iterations.
-        :return: The overall train iterations.
+        Get the overall training iterations.
+        :return: The overall training iterations.
         """
         return self._training_iterations
 
@@ -138,7 +148,8 @@ class Logger:
         """
         self._training_results[metric_name] = []
         self._validation_results[metric_name] = []
-        self._summaries[metric_name] = []
+        self._training_summaries[metric_name] = []
+        self._validation_summaries[metric_name] = []
 
     def log_training_result(self, metric_name: str, result: float):
         """
@@ -156,13 +167,21 @@ class Logger:
         """
         self._validation_results[metric_name][-1].append(result)
 
-    def log_summary(self, metric_name: str, result: float):
+    def log_training_summary(self, metric_name: str, result: float):
         """
-        Log the given metric result in the summaries results dictionary.
+        Log the given metric result in the training summaries results dictionary.
         :param metric_name: The metric name as it was logged in 'log_metric'.
         :param result:      The metric result to log.
         """
-        self._summaries[metric_name].append(result)
+        self._training_summaries[metric_name].append(result)
+
+    def log_validation_summary(self, metric_name: str, result: float):
+        """
+        Log the given metric result in the validation summaries results dictionary.
+        :param metric_name: The metric name as it was logged in 'log_metric'.
+        :param result:      The metric result to log.
+        """
+        self._validation_summaries[metric_name].append(result)
 
     def log_static_hyperparameter(self, parameter_name: str, value: TrackableType):
         """

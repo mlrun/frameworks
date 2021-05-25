@@ -1,4 +1,6 @@
-from typing import List, Dict, Union, Callable
+from typing import List, Dict, Tuple, Union, Callable
+from datetime import datetime
+
 import tensorflow as tf
 from tensorflow import Tensor, Variable
 from tensorflow.python.ops import summary_ops_v2
@@ -7,7 +9,9 @@ from tensorflow.keras import Model
 from tensorboard.plugins.hparams import api as hp_api
 from tensorboard.plugins.hparams import api_pb2 as hp_api_pb2
 from tensorboard.plugins.hparams import summary as hp_summary
+
 import mlrun
+
 from frameworks._common.loggers import TensorboardLogger, TrackableType
 from frameworks.keras.callbacks.logging_callback import LoggingCallback
 
@@ -55,7 +59,9 @@ class _KerasTensorboardLogger(TensorboardLogger):
         Log a summary of this training / validation run to tensorboard.
         """
         with self._file_writer.as_default():
-            tf.summary.text(name="Summary", data=self._parse_context_summary())
+            hyperlink, metadata = self._parse_context_summary()
+            tf.summary.text(name="MLRun URL", data=hyperlink, step=0)
+            tf.summary.text(name="Context", data=metadata, step=0)
 
     def log_parameters_table_to_tensorboard(self):
         """
@@ -69,8 +75,8 @@ class _KerasTensorboardLogger(TensorboardLogger):
             return
 
         # Prepare the static hyperparameters values:
-        non_graph_parameters = {}
-        hp_param_list = []
+        non_graph_parameters = {"Date": str(datetime.now()).split(".")[0]}
+        hp_param_list = [hp_api.HParam("Date")]
         for parameter, value in self._static_hyperparameters.items():
             non_graph_parameters[parameter] = value
             hp_param_list.append(hp_api.HParam(parameter))
@@ -78,10 +84,11 @@ class _KerasTensorboardLogger(TensorboardLogger):
         # Prepare the summaries values and the dynamic hyperparameters values (both registered as metrics):
         graph_parameters = {}
         hp_metric_list = []
-        for metric in self._validation_results:
-            metric_name = "{}/{}".format(self._Sections.SUMMARY, metric)
-            graph_parameters[metric_name] = 0.0
-            hp_metric_list.append(hp_api.Metric(metric_name))
+        for metric in self._training_results:
+            for prefix in ["training", "validation"]:
+                metric_name = "{}/{}_{}".format(self._Sections.SUMMARY, prefix, metric)
+                graph_parameters[metric_name] = 0.0
+                hp_metric_list.append(hp_api.Metric(metric_name))
         for parameter, epochs in self._dynamic_hyperparameters.items():
             parameter_name = "{}/{}".format(self._Sections.HYPERPARAMETERS, parameter)
             graph_parameters[parameter_name] = epochs[-1]
@@ -133,12 +140,16 @@ class _KerasTensorboardLogger(TensorboardLogger):
         Log the recent epoch summaries results to tensorboard.
         """
         with self._file_writer.as_default():
-            for metric, epochs in self._summaries.items():
-                tf.summary.scalar(
-                    name="{}/{}".format(self._Sections.SUMMARY, metric),
-                    data=epochs[-1],
-                    step=self._epochs,
-                )
+            for prefix, summaries in zip(
+                ["training", "validation"],
+                [self._training_summaries, self._validation_summaries],
+            ):
+                for metric, epochs in summaries.items():
+                    tf.summary.scalar(
+                        name="{}/{}_{}".format(self._Sections.SUMMARY, prefix, metric),
+                        data=epochs[-1],
+                        step=self._epochs,
+                    )
 
     def log_weights_histograms_to_tensorboard(self):
         """
@@ -172,24 +183,19 @@ class _KerasTensorboardLogger(TensorboardLogger):
                     step=self._epochs,
                 )
 
-    def log_model_to_tensorboard(self, model: Model, batch: int):
+    def log_model_to_tensorboard(self, model: Model):
         """
         Log the given model as a graph in tensorboard.
         """
         with self._file_writer.as_default():
             if tf.__version__ == "2.4.1":
                 with summary_ops_v2.always_record_summaries():
-                    summary_ops_v2.trace_export(
-                        name="epoch_{}_batch_{}".format(self._epochs, batch), step=batch
-                    )
-                    summary_ops_v2.keras_model(name=model.name, data=model, step=batch)
+                    summary_ops_v2.keras_model(name=model.name, data=model, step=0)
             elif tf.__version__ == "2.5.0":
                 from tensorflow.python.keras.callbacks import keras_model_summary
+
                 with summary_ops_v2.record_if(True):
-                    keras_model_summary('keras', model, step=0)
-                summary_ops_v2.trace_export(
-                    name="epoch_{}_batch_{}".format(self._epochs, batch), step=batch
-                )
+                    keras_model_summary("keras", model, step=0)
 
     def flush(self):
         """
@@ -373,6 +379,12 @@ class TensorboardLoggingCallback(LoggingCallback):
         # Setup the run, logging relevant information and tracking weights:
         self._setup_run()
 
+        # Log the model:
+        self._logger.log_model_to_tensorboard(model=self.model)
+
+        # Log the context summary:
+        self._logger.log_context_summary_to_tensorboard()
+
         # Log the initial weights (epoch 0):
         self._logger.log_weights_histograms_to_tensorboard()
         self._logger.log_weights_images_to_tensorboard()
@@ -403,7 +415,7 @@ class TensorboardLoggingCallback(LoggingCallback):
                      future.
         """
         # If this callback is part of evaluation and not training, need to check if the run was setup:
-        if not self._run_set_up:
+        if self._call_setup_run:
             # Setup the run, logging relevant information and tracking weights:
             self._setup_run()
             # Log the initial weights (epoch 0):
@@ -442,7 +454,7 @@ class TensorboardLoggingCallback(LoggingCallback):
         # Update the dynamic hyperparameters
         super(TensorboardLoggingCallback, self).on_epoch_end(epoch=epoch)
 
-        # Add this epoch loss and metrics averages to their graphs:
+        # Add this epoch loss and metrics summaries to their graphs:
         self._logger.log_summaries_to_tensorboard()
 
         # Add this epoch dynamic hyperparameters values to their graphs:
@@ -470,8 +482,6 @@ class TensorboardLoggingCallback(LoggingCallback):
         super(TensorboardLoggingCallback, self).on_train_batch_begin(
             batch=batch, logs=logs
         )
-        if not self._logged_model:
-            summary_ops_v2.trace_on(graph=True, profiler=False)
 
     def on_train_batch_end(self, batch: int, logs: dict = None):
         """
@@ -490,11 +500,6 @@ class TensorboardLoggingCallback(LoggingCallback):
 
         # Add this batch loss and metrics results to their graphs:
         self._logger.log_training_results_to_tensorboard()
-
-        # Check if needed to log model:
-        if not self._logged_model:
-            self._logger.log_model_to_tensorboard(model=self.model, batch=batch)
-            self._logged_model = True
 
         # Check if needed to log hyperparameters:
         if not self._logged_hyperparameters:
@@ -517,9 +522,6 @@ class TensorboardLoggingCallback(LoggingCallback):
             batch=batch, logs=logs
         )
 
-        if not self._logged_model:
-            summary_ops_v2.trace_on(graph=True, profiler=False)
-
     def on_test_batch_end(self, batch: int, logs: dict = None):
         """
         Called at the end of a batch in `evaluate` methods. Also called at the end of a validation batch in the `fit`
@@ -538,11 +540,6 @@ class TensorboardLoggingCallback(LoggingCallback):
 
         # Add this batch loss and metrics results to their graphs:
         self._logger.log_validation_results_to_tensorboard()
-
-        # Check if needed to log model:
-        if not self._logged_model:
-            self._logger.log_model_to_tensorboard(model=self.model, batch=batch)
-            self._logged_model = True
 
         # Check if needed to log hyperparameters:
         if not self._logged_hyperparameters:

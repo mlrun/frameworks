@@ -70,36 +70,34 @@ class MLRunLogger(Logger):
         child_context = self._context.get_child_context()
 
         # Set the current iteration and artifact path according to the epoch number:
-        child_context._iteration = epoch
-        child_context.artifact_path = os.path.join(
-            self._context.artifact_path, "epoch_{}".format(epoch)
-        )
+        child_context._iteration = epoch + 1
 
         # Log the collected hyperparameters and values as results to the epoch's child context:
         for static_parameter, value in self._static_hyperparameters.items():
             child_context.log_result(static_parameter, value)
         for dynamic_parameter, values in self._dynamic_hyperparameters.items():
             child_context.log_result(dynamic_parameter, values[-1])
-        for metric, epochs in self._training_results.items():
-            child_context.log_result("Training {}".format(metric), epochs[-1][-1])
-        for metric, results in self._summaries.items():
-            child_context.log_result("Validation {}".format(metric), results[-1])
+        for metric, results in self._training_summaries.items():
+            child_context.log_result("training_{}".format(metric), results[-1])
+        for metric, results in self._validation_summaries.items():
+            child_context.log_result("validation_{}".format(metric), results[-1])
 
         # Update the last epoch to the main context:
         self._context._results = child_context.results
 
         # Log the epochs metrics results as chart artifacts:
         for metrics_prefix, metrics_dictionary in zip(
-            ["Train", "Validation"], [self._training_results, self._validation_results]
+            ["training", "validation"],
+            [self._training_results, self._validation_results],
         ):
             for metric_name, metric_epochs in metrics_dictionary.items():
                 # Create the chart artifact:
-                chart_name = "{}_{}_results_epoch_{}".format(
+                chart_name = "{}_{}_epoch_{}".format(
                     metrics_prefix, metric_name, len(metric_epochs)
                 )
                 chart_artifact = ChartArtifact(
                     key="{}.html".format(chart_name),
-                    header=["iteration", metric_name],
+                    header=["iteration", "result"],
                     data=list(
                         np.array(
                             [list(np.arange(len(metric_epochs[-1]))), metric_epochs[-1]]
@@ -126,25 +124,39 @@ class MLRunLogger(Logger):
 
         * Plot artifacts:
 
-          * A chart for each of the validation metrics epochs results across all the run.
+          * A chart for each of the metrics epochs results summaries across all the run (training and validation).
           * A chart for each of the dynamic hyperparameters epochs values across all the run.
 
         * Model artifact: The model will be saved and logged with all the collected artifacts of this logger.
 
         :param model_handler: The model handler object holding the model to save and log.
         """
-        # Create chart artifact for summaries:
-        for metric_name, metric_values in self._summaries.items():
+        # Create chart artifacts for summaries:
+        for metric_name, metric_results in self._training_summaries.items():
+            if metric_name in self._validation_summaries:
+                header = ["epoch", "training_result", "validation_result"]
+                data = list(
+                    np.array(
+                        [
+                            list(np.arange(len(metric_results))),
+                            metric_results,
+                            self._validation_summaries[metric_name],
+                        ]
+                    ).transpose()
+                )
+            else:
+                header = ["epoch", "training_result"]
+                data = list(
+                    np.array(
+                        [list(np.arange(len(metric_results))), metric_results]
+                    ).transpose()
+                )
             # Create the chart artifact:
-            chart_name = "Validation_{}_summary".format(metric_name)
+            chart_name = "{}_summary".format(metric_name)
             chart_artifact = ChartArtifact(
                 key="{}.html".format(chart_name),
-                header=["epoch", metric_name],
-                data=list(
-                    np.array(
-                        [list(np.arange(len(metric_values))), metric_values]
-                    ).transpose()
-                ),
+                header=header,
+                data=data,
             )
             # Log the artifact:
             self._context.log_artifact(
@@ -154,18 +166,17 @@ class MLRunLogger(Logger):
             # Collect it for later adding it to the model logging as extra data:
             self._artifacts[chart_name] = chart_artifact
 
-        # Create chart artifact for dynamic hyperparameters:
+        # Create chart artifacts for dynamic hyperparameters:
         for parameter_name, parameter_values in self._dynamic_hyperparameters.items():
             # Create the chart artifact:
-            chart_name = "{}_summary".format(parameter_name)
             chart_artifact = ChartArtifact(
-                key="{}.html".format(chart_name),
-                header=["epoch", parameter_name],
+                key="{}.html".format(parameter_name),
+                header=["epoch", "value"],
                 data=list(
                     np.array(
                         [list(np.arange(len(parameter_values))), parameter_values]
-                    ).transpose()
-                ),
+                    ).transpose(),
+                )
             )
             # Log the artifact:
             self._context.log_artifact(
@@ -173,7 +184,7 @@ class MLRunLogger(Logger):
                 local_path=chart_artifact.key,
             )
             # Collect it for later adding it to the model logging as extra data:
-            self._artifacts[chart_name] = chart_artifact
+            self._artifacts[parameter_name] = chart_artifact
 
         # Log the model:
         model_handler.set_context(context=self._context)

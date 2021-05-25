@@ -95,14 +95,14 @@ class Callback(ABC):
 
     def on_epoch_begin(self, epoch: int):
         """
-        After the trainer given epoch begins, this method will be called.
+        After the trainer epoch begins, this method will be called.
         :param epoch: The epoch that is about to begin.
         """
         pass
 
     def on_epoch_end(self, epoch: int):
         """
-        Before the trainer given epoch ends, this method will be called.
+        Before the trainer epoch ends, this method will be called.
         :param epoch: The epoch that has just ended.
         """
         pass
