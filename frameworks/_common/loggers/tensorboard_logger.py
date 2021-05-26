@@ -43,6 +43,15 @@ class TensorboardLogger(Logger, Generic[Weight]):
         os.sep, "User", ".tensorboard", "{{project}}"
     )
 
+    # The template for the context summary to log into tensorboard as markdown text:
+    _CONTEXT_SUMMARY_TEMPLATE = """
+#### Job URL: 
+{}
+
+#### Job Summary:
+{}
+"""
+
     class _Sections:
         """
         Tensorboard split his plots to sections via a path like name <SECTION>/<PLOT_NAME>. These are the sections used
@@ -272,14 +281,12 @@ class TensorboardLogger(Logger, Generic[Weight]):
 
         return output_path, run_name
 
-    def _parse_context_summary(self) -> Tuple[str, str]:
+    def _parse_context_summary(self) -> str:
         """
         Parse and return the run summary - a hyperlink for the job in MLRun and the context metadata as strings to log
-        into tensorboard as text.
+        into tensorboard as markdown text.
 
-        :return: A tuple of the parsed strings:
-                 [0] = The job hyperlink to MLRun.
-                 [1] = The context metadata json as string.
+        :return: The job hyperlink to MLRun and the context metadata json as a markdown string.
         """
         # Parse the hyperlink:
         hyperlink = (
@@ -294,6 +301,6 @@ class TensorboardLogger(Logger, Generic[Weight]):
 
         # Parse the context meta data as a json string:
         json_metadata = json.dumps(self._context.to_dict(), indent=4)
-        metadata = "".join("\t" + line for line in json_metadata.splitlines(True))
+        metadata = "".join("\t\t" + line for line in json_metadata.splitlines(True))
 
-        return hyperlink, metadata
+        return self._CONTEXT_SUMMARY_TEMPLATE.format(hyperlink, metadata)

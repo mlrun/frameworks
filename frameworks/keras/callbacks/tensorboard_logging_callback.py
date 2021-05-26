@@ -59,9 +59,7 @@ class _KerasTensorboardLogger(TensorboardLogger):
         Log a summary of this training / validation run to tensorboard.
         """
         with self._file_writer.as_default():
-            hyperlink, metadata = self._parse_context_summary()
-            tf.summary.text(name="MLRun URL", data=hyperlink, step=0)
-            tf.summary.text(name="Context", data=metadata, step=0)
+            tf.summary.text(name="MLRun", data=self._parse_context_summary(), step=0)
 
     def log_parameters_table_to_tensorboard(self):
         """
