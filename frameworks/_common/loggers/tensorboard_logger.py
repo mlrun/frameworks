@@ -49,7 +49,9 @@ class TensorboardLogger(Logger, Generic[Weight]):
 {}
 
 #### Job Summary:
+```json
 {}
+```
 """
 
     class _Sections:
@@ -301,6 +303,6 @@ class TensorboardLogger(Logger, Generic[Weight]):
 
         # Parse the context meta data as a json string:
         json_metadata = json.dumps(self._context.to_dict(), indent=4)
-        metadata = "".join("\t\t" + line for line in json_metadata.splitlines(True))
+        metadata = "".join("\t" + line for line in json_metadata.splitlines(True))
 
         return self._CONTEXT_SUMMARY_TEMPLATE.format(hyperlink, metadata)
