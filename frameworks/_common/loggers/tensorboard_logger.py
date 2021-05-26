@@ -49,9 +49,7 @@ class TensorboardLogger(Logger, Generic[Weight]):
 {}
 
 #### Job Summary:
-```json
 {}
-```
 """
 
     class _Sections:
@@ -246,8 +244,8 @@ class TensorboardLogger(Logger, Generic[Weight]):
         if run_name is None:
             run_name = (
                 str(datetime.now()).split(".")[0].replace(" ", "_")
-                if (self._context is None or self._context.name != "")
-                else self._context.name
+                if (self._context is None or self._context.name == "")
+                else "{}-{}".format(self._context.name, self._context.uid)
             )
 
         # Check if a context is available:
@@ -305,6 +303,6 @@ class TensorboardLogger(Logger, Generic[Weight]):
 
         # Parse the context meta data as a json string:
         json_metadata = json.dumps(self._context.to_dict(), indent=4)
-        metadata = "".join("\t" + line for line in json_metadata.splitlines(True))
+        metadata = "".join("\t\t" + line for line in json_metadata.splitlines(True))
 
         return self._CONTEXT_SUMMARY_TEMPLATE.format(hyperlink, metadata)

@@ -160,8 +160,9 @@ class KerasModelHandler(ModelHandler):
 
         # Set the output path:
         if output_path is None:
+            # TODO: Fix this local path thing.
             output_path = os.path.join(self._context.artifact_path, self._model_name)
-        os.makedirs(output_path, exist_ok=True)
+        os.makedirs(output_path, exist_ok=True)  # TODO: Remove this
 
         if (
             self._save_format
