@@ -273,7 +273,9 @@ class TensorboardLogger(Logger, Generic[Weight]):
                 tensorboard_directory = self._DEFAULT_TENSORBOARD_DIRECTORY.replace(
                     "{{project}}", self._context.project
                 )
-                if not os.access(tensorboard_directory, os.W_OK):
+                try:
+                    os.makedirs(tensorboard_directory, exist_ok=True)
+                except OSError:
                     # The tensorboard default directory is not writable, change to the artifact path:
                     tensorboard_directory = self._context.artifact_path
 
