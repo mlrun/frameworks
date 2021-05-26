@@ -105,10 +105,9 @@ class MLRunLogger(Logger):
                     ),
                 )
                 # Log the artifact:
-                child_context.log_artifact(
+                self._context.log_artifact(
                     chart_artifact,
                     local_path=chart_artifact.key,
-                    artifact_path=child_context.artifact_path,
                 )
                 # Collect it for later adding it to the model logging as extra data:
                 self._artifacts[chart_name] = chart_artifact
