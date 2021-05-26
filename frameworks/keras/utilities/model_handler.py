@@ -158,19 +158,23 @@ class KerasModelHandler(ModelHandler):
         model_path = None  # type: str
         weights_path = None  # type: str
 
+        # Set the output path:
+        if output_path is None:
+            output_path = os.path.join(self._context.artifact_path, self._model_name)
+        os.makedirs(output_path, exist_ok=True)
+
         if (
             self._save_format
             == KerasModelHandler.SaveFormats.JSON_ARCHITECTURE_H5_WEIGHTS
         ):
             # Save the model architecture (json):
             model_architecture = self._model.to_json()
-            if output_path is None:
-                output_path = self._context.artifact_path
-            model_path = os.path.join(output_path, "{}.json".format(self._model_name))
-            with open(model_path, "w") as json_file:
+
+            model_path = "{}.json".format(self._model_name)
+            with open(model_path, 'w') as json_file:
                 json_file.write(model_architecture)
             # Save the model weights (h5):
-            weights_path = os.path.join(output_path, "{}.h5".format(self._model_name))
+            weights_path = "{}.h5".format(self._model_name)
             self._model.save_weights(weights_path)
         elif self._save_format == KerasModelHandler.SaveFormats.TF_CHECKPOINT:
             raise NotImplementedError
@@ -183,16 +187,18 @@ class KerasModelHandler(ModelHandler):
             self._model_path = model_path
             if self._context:
                 artifacts["model_file"] = self._context.log_artifact(
-                    os.path.basename(model_path),
-                    local_path=os.path.basename(model_path),
+                    model_path,
+                    local_path=model_path,
+                    artifact_path=output_path,
                     db_key=False,
                 )
         if weights_path:
             self._weights_path = weights_path
             if self._context:
                 artifacts["weights_file"] = self._context.log_artifact(
-                    os.path.basename(weights_path),
-                    local_path=os.path.basename(weights_path),
+                    weights_path,
+                    local_path=weights_path,
+                    artifact_path=output_path,
                     db_key=False,
                 )
 

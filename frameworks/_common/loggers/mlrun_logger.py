@@ -105,15 +105,15 @@ class MLRunLogger(Logger):
                     ),
                 )
                 # Log the artifact:
-                self._context.log_artifact(
+                child_context.log_artifact(
                     chart_artifact,
                     local_path=chart_artifact.key,
+                    artifact_path=child_context.artifact_path,
                 )
                 # Collect it for later adding it to the model logging as extra data:
                 self._artifacts[chart_name] = chart_artifact
 
         # Commit and commit children for MLRun flag bug:
-        self._context.update_child_iterations(commit_children=True)
         self._context.commit()
 
     def log_run(self, model_handler: ModelHandler):
@@ -188,3 +188,6 @@ class MLRunLogger(Logger):
         # Log the model:
         model_handler.set_context(context=self._context)
         model_handler.log(self._artifacts)
+
+        # Commit:
+        self._context.commit()
