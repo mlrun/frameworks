@@ -9,6 +9,7 @@ from tensorflow.keras.optimizers import Optimizer
 from tensorflow.keras.metrics import Metric
 import mlrun
 from mlrun import MLClientCtx
+import horovod.tensorflow.keras as hvd
 from frameworks.keras.utilities import KerasHorovodHandler
 from frameworks.keras.callbacks import (
     MLRunLoggingCallback,
@@ -104,9 +105,9 @@ def compile_with_horovod(
                    * Horovod applied callbacks list.
                    * Verbose value.
     """
-    # Import horovod:
-    KerasHorovodHandler.import_horovod()
-    hvd = KerasHorovodHandler.get_horovod()
+    # # Import horovod:
+    # KerasHorovodHandler.import_horovod()
+    # hvd = KerasHorovodHandler.get_horovod()
 
     # Initialize horovod:
     hvd.init()
