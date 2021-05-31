@@ -59,7 +59,11 @@ class _KerasTensorboardLogger(TensorboardLogger):
         Log a summary of this training / validation run to tensorboard.
         """
         with self._file_writer.as_default():
-            tf.summary.text(name="MLRun", data=self._parse_context_summary(), step=0)
+            tf.summary.text(
+                name="MLRun",
+                data=self._parse_context_summary(),
+                step=self._training_iterations,
+            )
 
     def log_parameters_table_to_tensorboard(self):
         """
@@ -400,6 +404,10 @@ class TensorboardLoggingCallback(LoggingCallback):
                      method but that may change in the future.
         """
         super(TensorboardLoggingCallback, self).on_train_end()
+
+        # TODO: Need to resolve the table getting messy with all the artifacts
+        # # Log the context summary:
+        # self._logger.log_context_summary_to_tensorboard()
 
         # Close the logger:
         self._logger.close()

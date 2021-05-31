@@ -181,15 +181,12 @@ class LoggingCallback(Callback):
         # # Loss:
         self._logger.log_metric(
             metric_name=self._get_metric_name(
-                metric_type=self._MetricType.LOSS,
                 metric_function=self._objects[self._ObjectKeys.LOSS_FUNCTION],
             )
         )
         # # Metrics:
         for metric_function in self._objects[self._ObjectKeys.METRIC_FUNCTIONS]:
-            metric_name = self._get_metric_name(
-                metric_type=self._MetricType.ACCURACY, metric_function=metric_function
-            )
+            metric_name = self._get_metric_name(metric_function=metric_function)
             self._logger.log_metric(metric_name=metric_name)
 
         # Setup the hyperparameters dictionaries:
@@ -255,7 +252,6 @@ class LoggingCallback(Callback):
         """
         # Store the last training loss result of this epoch:
         loss_name = self._get_metric_name(
-            metric_type=self._MetricType.LOSS,
             metric_function=self._objects[self._ObjectKeys.LOSS_FUNCTION],
         )
         self._logger.log_training_summary(
@@ -266,7 +262,6 @@ class LoggingCallback(Callback):
         # Store the last training metrics results of this epoch:
         for metric_function in self._objects[self._ObjectKeys.METRIC_FUNCTIONS]:
             metric_name = self._get_metric_name(
-                metric_type=self._MetricType.ACCURACY,
                 metric_function=metric_function,
             )
             self._logger.log_training_summary(
@@ -294,7 +289,6 @@ class LoggingCallback(Callback):
         # Store the validation loss average of this epoch:
         self._logger.log_validation_summary(
             metric_name=self._get_metric_name(
-                metric_type=self._MetricType.LOSS,
                 metric_function=self._objects[self._ObjectKeys.LOSS_FUNCTION],
             ),
             result=float(loss_value),
@@ -306,7 +300,6 @@ class LoggingCallback(Callback):
         ):
             self._logger.log_validation_summary(
                 metric_name=self._get_metric_name(
-                    metric_type=self._MetricType.ACCURACY,
                     metric_function=metric_function,
                 ),
                 result=float(metric_value),
@@ -349,7 +342,6 @@ class LoggingCallback(Callback):
         # Store the loss value at the current epoch:
         self._logger.log_training_result(
             metric_name=self._get_metric_name(
-                metric_type=self._MetricType.LOSS,
                 metric_function=self._objects[self._ObjectKeys.LOSS_FUNCTION],
             ),
             result=float(loss_value),
@@ -369,7 +361,6 @@ class LoggingCallback(Callback):
         # Store the loss value at the current epoch:
         self._logger.log_validation_result(
             metric_name=self._get_metric_name(
-                metric_type=self._MetricType.LOSS,
                 metric_function=self._objects[self._ObjectKeys.LOSS_FUNCTION],
             ),
             result=float(loss_value),
@@ -391,7 +382,6 @@ class LoggingCallback(Callback):
         ):
             self._logger.log_training_result(
                 metric_name=self._get_metric_name(
-                    metric_type=self._MetricType.ACCURACY,
                     metric_function=metric_function,
                 ),
                 result=float(metric_value),
@@ -414,7 +404,6 @@ class LoggingCallback(Callback):
         ):
             self._logger.log_validation_result(
                 metric_name=self._get_metric_name(
-                    metric_type=self._MetricType.ACCURACY,
                     metric_function=metric_function,
                 ),
                 result=float(metric_value),
@@ -512,11 +501,10 @@ class LoggingCallback(Callback):
         return value
 
     @staticmethod
-    def _get_metric_name(metric_type: str, metric_function: MetricFunctionType):
+    def _get_metric_name(metric_function: MetricFunctionType):
         """
         Get the given metric name.
 
-        :param metric_type:     Each metric can be either 'loss' or 'accuracy'.
         :param metric_function: The metric function to get its name.
 
         :return: The metric name.
@@ -525,4 +513,4 @@ class LoggingCallback(Callback):
             function_name = metric_function.__class__.__name__
         else:
             function_name = metric_function.__name__
-        return "{}:{}".format(function_name, metric_type)
+        return function_name

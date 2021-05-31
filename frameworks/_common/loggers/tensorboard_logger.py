@@ -291,19 +291,33 @@ class TensorboardLogger(Logger, Generic[Weight]):
         :return: The job hyperlink to MLRun and the context metadata json as a markdown string.
         """
         if self._context is not None:
-            # Parse the hyperlink:
-            job_url = '<a href="{}/{}/{}/jobs/monitor/{}/overview" target="_blank">uid={}</a>'.format(
+            # # Parse the hyperlink:
+            # job_url = '<a href="{}/{}/{}/jobs/monitor/{}/overview" target="_blank">uid={}</a>'.format(
+            #     config.resolve_ui_url(),
+            #     config.ui.projects_prefix,
+            #     self._context.project,
+            #     self._context.uid,
+            #     self._context.uid
+            # )
+            #
+            # # Parse the context metadata as a json string:
+            # json_metadata = json.dumps(self._context.to_dict(), indent=4)
+            # job_summary = "".join("\t\t" + line for line in json_metadata.splitlines(True))
+            #
+            # return self._CONTEXT_SUMMARY_TEMPLATE.format(job_url, job_summary)
+            job_url = '<a href="{}/{}/{}/jobs/monitor/{}/overview" target="_blank">{}</a>'.format(
                 config.resolve_ui_url(),
                 config.ui.projects_prefix,
                 self._context.project,
                 self._context.uid,
                 self._context.uid
             )
-
-            # Parse the context metadata as a json string:
-            json_metadata = json.dumps(self._context.to_dict(), indent=4)
-            job_summary = "".join("\t\t" + line for line in json_metadata.splitlines(True))
-
-            return self._CONTEXT_SUMMARY_TEMPLATE.format(job_url, job_summary)
+            run = mlrun.RunObject.from_dict(self._context.to_dict())
+            runs = mlrun.lists.RunList([run.to_dict()])
+            html = "<h2>Run Results for: {}</h2><br>".format(job_url)
+            for k, v in list(zip(*runs.to_rows())):
+                html += f'<tr><th style="text-align:left">{k}:</th><td>{v}</td></tr>'
+            html = f"<table>{html}</table>"
+            return html
 
         return "Output directory: {}\nRun name: {}".format(self._output_path, self._run_name)

@@ -97,7 +97,7 @@ class MLRunLoggingCallback(LoggingCallback):
         model = self._objects[self._ObjectKeys.MODEL]
         self._logger.log_run(
             model_handler=PyTorchModelHandler(
-                model_class=type(model).__name__,
+                model_class=type(model),
                 custom_objects=self._custom_objects,
                 model=model,
             )

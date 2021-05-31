@@ -134,14 +134,20 @@ class Trainer:
         # Prepare horovod for the run if needed:
         if use_horovod:
             # Partition dataset among workers using DistributedSampler:
-            self._training_set.sampler = DistributedSampler(
-                self._training_set.dataset, num_replicas=hvd.size(), rank=hvd.rank()
+            self._training_set = self._insert_sampler_to_data_loader(
+                data_loader=self._training_set,
+                sampler=DistributedSampler(
+                    self._training_set.dataset, num_replicas=hvd.size(), rank=hvd.rank()
+                ),
             )
             if self._validation_set:
-                self._validation_set.sampler = DistributedSampler(
-                    self._validation_set.dataset,
-                    num_replicas=hvd.size(),
-                    rank=hvd.rank(),
+                self._validation_set = self._insert_sampler_to_data_loader(
+                    data_loader=self._validation_set,
+                    sampler=DistributedSampler(
+                        self._validation_set.dataset,
+                        num_replicas=hvd.size(),
+                        rank=hvd.rank(),
+                    ),
                 )
             # Add Horovod Distributed Optimizer:
             self._optimizer = hvd.DistributedOptimizer(
@@ -248,16 +254,16 @@ class Trainer:
                                        should create the callbacks and use the 'run' method. Defaulted to True.
         """
         # Define the static hyperparameters:
-        if static_hyperparameters is None:
-            static_hyperparameters = {
-                "Batch Size": self._training_set.batch_size,
-                "Epochs": self._epochs,
-                "Training Iterations": self._training_iterations,
-            }
-            if self._validation_set is not None:
-                static_hyperparameters[
-                    "Validation Iterations"
-                ] = self._validation_iterations
+        # if static_hyperparameters is None:
+        #     static_hyperparameters = {
+        #         "Batch Size": self._training_set.batch_size,
+        #         "Epochs": self._epochs,
+        #         "Training Iterations": self._training_iterations,
+        #     }
+        #     if self._validation_set is not None:
+        #         static_hyperparameters[
+        #             "Validation Iterations"
+        #         ] = self._validation_iterations
 
         # Define the dynamic hyperparameters:
         dynamic_hyperparameters = {}
@@ -470,3 +476,34 @@ class Trainer:
             "\nSummary:\n"
             + tabulate(table, headers=["Metrics", "Values"], tablefmt="pretty")
         )
+
+    @staticmethod
+    def _insert_sampler_to_data_loader(
+        data_loader: DataLoader, sampler: DistributedSampler
+    ):
+        """
+        Initialize a new data loader based on the given data loader with the given sampler.
+
+        :param data_loader: The data loader to insert the sampler to.
+        :param sampler:     Sampler to insert.
+
+        :return: The sampler initialized data loader.
+        """
+        with_sampler_data_loader = DataLoader(
+            dataset=data_loader.dataset,
+            batch_size=data_loader.batch_size,
+            shuffle=False,
+            sampler=sampler,
+            num_workers=data_loader.num_workers,
+            collate_fn=data_loader.collate_fn,
+            pin_memory=data_loader.pin_memory,
+            drop_last=data_loader.drop_last,
+            timeout=data_loader.timeout,
+            worker_init_fn=data_loader.worker_init_fn,
+            multiprocessing_context=data_loader.multiprocessing_context,
+            generator=data_loader.generator,
+            prefetch_factor=data_loader.prefetch_factor,
+            persistent_workers=data_loader.persistent_workers,
+        )
+        del data_loader
+        return with_sampler_data_loader

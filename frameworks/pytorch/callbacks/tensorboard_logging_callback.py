@@ -1,4 +1,5 @@
 from typing import List, Tuple, Dict, Union, Callable
+from datetime import datetime
 import torch
 from torch import Tensor
 from torch.nn import Module, Parameter
@@ -84,7 +85,9 @@ class _PyTorchTensorboardLogger(TensorboardLogger):
         Log a summary of this training / validation run to tensorboard.
         """
         self._summary_writer.add_text(
-            tag="Summary", text_string=self._parse_context_summary()
+            tag="Summary",
+            text_string=self._parse_context_summary(),
+            global_step=self._training_iterations,
         )
 
     def log_parameters_table_to_tensorboard(self):
@@ -99,16 +102,20 @@ class _PyTorchTensorboardLogger(TensorboardLogger):
             return
 
         # Prepare the hyperparameters values:
-        non_graph_parameters = {}
+        non_graph_parameters = {"Date": str(datetime.now()).split(".")[0]}
         for parameter, value in self._static_hyperparameters.items():
             non_graph_parameters[parameter] = value
 
         # Prepare the summaries values and the dynamic hyperparameters values:
         graph_parameters = {}
         for metric in self._training_summaries:
-            graph_parameters["{}/training_{}".format(self._Sections.SUMMARY, metric)] = 0.0
+            graph_parameters[
+                "{}/training_{}".format(self._Sections.SUMMARY, metric)
+            ] = 0.0
         for metric in self._validation_summaries:
-            graph_parameters["{}/validation_{}".format(self._Sections.SUMMARY, metric)] = 0.0
+            graph_parameters[
+                "{}/validation_{}".format(self._Sections.SUMMARY, metric)
+            ] = 0.0
         for parameter, epochs in self._dynamic_hyperparameters.items():
             graph_parameters[
                 "{}/{}".format(self._Sections.HYPERPARAMETERS, parameter)
@@ -440,6 +447,16 @@ class TensorboardLoggingCallback(LoggingCallback):
         self._logger.log_weights_images_to_tensorboard()
         self._logger.log_weights_statistics()
         self._logger.log_statistics_to_tensorboard()
+
+    def on_run_end(self):
+        """
+        Before the trainer / evaluator run ends, this method will be called to log the context summary.
+        """
+        super(TensorboardLoggingCallback, self).on_run_end()
+
+        # TODO: Need to resolve the table getting messy with all the artifacts
+        # # Log the summary meta data of the run:
+        # self._logger.log_context_summary_to_tensorboard()
 
     def on_epoch_end(self, epoch: int):
         """
