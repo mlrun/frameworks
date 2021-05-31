@@ -279,7 +279,7 @@ class TensorboardLogger(Logger, Generic[Weight]):
 
         # Create the output path:
         output_path = os.path.join(tensorboard_directory, run_name)
-        os.makedirs(output_path)
+        os.makedirs(output_path, exist_ok=True)
 
         return output_path, run_name
 
@@ -310,7 +310,7 @@ class TensorboardLogger(Logger, Generic[Weight]):
                 config.ui.projects_prefix,
                 self._context.project,
                 self._context.uid,
-                self._context.uid
+                self._context.uid,
             )
             run = mlrun.RunObject.from_dict(self._context.to_dict())
             runs = mlrun.lists.RunList([run.to_dict()])
@@ -320,4 +320,6 @@ class TensorboardLogger(Logger, Generic[Weight]):
             html = f"<table>{html}</table>"
             return html
 
-        return "Output directory: {}\nRun name: {}".format(self._output_path, self._run_name)
+        return "Output directory: {}\nRun name: {}".format(
+            self._output_path, self._run_name
+        )
