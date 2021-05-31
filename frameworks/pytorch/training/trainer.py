@@ -206,19 +206,17 @@ class Trainer:
         # End of run loggers:
         callbacks_handler.on_run_end()
 
-    def auto_log(
+    def get_auto_logging_callbacks(
         self,
         context: MLClientCtx,
-        custom_objects: Dict[Union[str, List[str]], str],
+        custom_objects: Dict[Union[str, List[str]], str] = None,
         static_hyperparameters: Dict[
             str, Union[TrackableType, Tuple[str, List[Union[str, int]]]]
         ] = None,
         log_learning_rate: bool = True,
-        use_cuda: bool = True,
-        use_horovod: bool = False,
-    ):
+    ) -> List[Callback]:
         """
-        Run training with automatic logging to MLRun's context and Tensorboard. For further features of logging to both
+        Get automatic logging callbacks to both MLRun's context and Tensorboard. For further features of logging to both
         MLRun and Tensorboard, see 'pytorch.callbacks.MLRunLoggingCallback' and
         'pytorch.callbacks.TensorboardLoggingCallback'.
 
@@ -248,10 +246,6 @@ class Trainer:
                                        learning rate is not accessible via the common key chain
                                        (param_group 0 -> 'lr'/'learning_rate') it won't be tracked. To track it you
                                        should create the callbacks and use the 'run' method. Defaulted to True.
-        :param use_cuda:               Whether or not to use cuda. Only relevant if cuda is available. Defaulted to
-                                       True.
-        :param use_horovod:            Whether or not to use horovod - a distributed training framework. Defaulted to
-                                       False.
         """
         # Define the static hyperparameters:
         if static_hyperparameters is None:
@@ -272,25 +266,21 @@ class Trainer:
             if learning_rate is not None:
                 dynamic_hyperparameters["Learning Rate"] = learning_rate
 
-        # Run the trainer:
-        self.run(
-            callbacks=[
-                MLRunLoggingCallback(
-                    context=context,
-                    custom_objects=custom_objects,
-                    static_hyperparameters=static_hyperparameters,
-                    dynamic_hyperparameters=dynamic_hyperparameters,
-                ),
-                TensorboardLoggingCallback(
-                    context=context,
-                    static_hyperparameters=static_hyperparameters,
-                    dynamic_hyperparameters=dynamic_hyperparameters,
-                    weights=True,
-                ),
-            ],
-            use_cuda=use_cuda,
-            use_horovod=use_horovod,
-        )
+        # Initialize and return the callbacks:
+        return [
+            MLRunLoggingCallback(
+                context=context,
+                custom_objects=custom_objects,
+                static_hyperparameters=static_hyperparameters,
+                dynamic_hyperparameters=dynamic_hyperparameters,
+            ),
+            TensorboardLoggingCallback(
+                context=context,
+                static_hyperparameters=static_hyperparameters,
+                dynamic_hyperparameters=dynamic_hyperparameters,
+                weights=True,
+            ),
+        ]
 
     def _get_learning_rate(self) -> Union[Tuple[str, List[Union[str, int]]], None]:
         """
@@ -457,7 +447,9 @@ class Trainer:
 
         # Calculate the final average of the loss and accuracy values:
         loss_value = sum(losses) / len(losses)
-        metric_values = [(sum(metric) / len(metric)) for metric in metrics]  # TODO: Fix division by 0 when no metrics were given
+        metric_values = [
+            (sum(metric) / len(metric)) for metric in metrics
+        ]  # TODO: Fix division by 0 when no metrics were given
         return loss_value, metric_values
 
     def _print_results(self, loss_value: Tensor, metric_values: List[float]):

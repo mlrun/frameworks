@@ -161,6 +161,9 @@ class KerasModelHandler(ModelHandler):
         # Set the output path:
         if output_path is None:
             # TODO: Fix this local path thing.
+            if self._context is None:
+                raise ValueError("If an output path is not provided a MLRun context is expected to be set in "
+                                 "initialization yet no context was set.")
             output_path = os.path.join(self._context.artifact_path, self._model_name)
         os.makedirs(output_path, exist_ok=True)  # TODO: Remove this
 

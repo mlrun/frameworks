@@ -101,11 +101,30 @@ class PyTorchModelHandler(ModelHandler):
         """
         super(PyTorchModelHandler, self).save(output_path=output_path)
 
+        # Set the output path:
         if output_path is None:
+            if self._context is None:
+                raise ValueError("If an output path is not provided a MLRun context is expected to be set in "
+                                 "initialization yet no context was set.")
             output_path = self._context.artifact_path
+
+        # Save the model:
         pt_file_path = os.path.join(output_path, "{}.pt".format(self._model_name))
         torch.save({self._model.state_dict()}, pt_file_path)
-        # TODO: Log and return this artifact
+
+        # Update the paths and log artifact if context is available:
+        artifacts = None
+        if self._context:
+            artifacts = {
+                "model_file": self._context.log_artifact(
+                    pt_file_path,
+                    local_path=pt_file_path,
+                    artifact_path=output_path,
+                    db_key=False,
+                )
+            }
+
+        return artifacts
 
     def load(self, uid: str = None, epoch: int = None, *args, **kwargs):
         """
