@@ -155,7 +155,7 @@ class _PyTorchTensorboardLogger(TensorboardLogger):
         Log the recent epoch summaries results to tensorboard.
         """
         for prefix, summaries in zip(
-            ["training, validation"],
+            ["training", "validation"],
             [self._training_summaries, self._validation_summaries],
         ):
             for metric, epochs in summaries.items():
@@ -243,7 +243,9 @@ class TensorboardLoggingCallback(LoggingCallback):
         statistics_functions: List[
             Callable[[Union[Parameter, Tensor]], Union[float, Tensor]]
         ] = None,
-        dynamic_hyperparameters: Dict[str, Tuple[str, List[Union[str, int]]]] = None,
+        dynamic_hyperparameters: Dict[
+            str, Tuple[str, Union[List[Union[str, int]], Callable[[], TrackableType]]]
+        ] = None,
         static_hyperparameters: Dict[
             str, Union[TrackableType, Tuple[str, List[Union[str, int]]]]
         ] = None,
@@ -265,7 +267,7 @@ class TensorboardLoggingCallback(LoggingCallback):
                                         be searched as 'if <NAME> in <WEIGHT_NAME>' so a simple module name will be
                                         enough to catch his weights. A boolean value can be passed to track all weights.
                                         Defaulted to False.
-        :param statistics_functions:      A list of statistics functions to calculate at the end of each epoch on the
+        :param statistics_functions:    A list of statistics functions to calculate at the end of each epoch on the
                                         tracked weights. Only relevant if weights are being tracked. The functions in
                                         the list must accept one Parameter (or Tensor) and return a float (or float
                                         convertible) value. The default statistics are 'mean' and 'std'. To get the
@@ -276,10 +278,14 @@ class TensorboardLoggingCallback(LoggingCallback):
                                         be passed here. The parameter expects a dictionary where the keys are the
                                         hyperparameter chosen names and the values are tuples of object key and a list
                                         with the key chain. A key chain is a list of keys and indices to know how to
-                                        access the needed hyperparameter. For example, to track the 'lr' attribute of
-                                        an optimizer, one should pass:
+                                        access the needed hyperparameter. If the hyperparameter is not of accessible
+                                        from any of the HyperparametersKeys, a custom callable method can be passed in
+                                        the tuple instead of the key chain when providing the word
+                                        HyperparametersKeys.CUSTOM. For example, to track the 'lr' attribute of
+                                        an optimizer and a custom parameter, one should pass:
                                         {
-                                            "learning rate": (HyperparametersKeys.OPTIMIZER, ["param_groups", 0, "lr"])
+                                            "learning rate": (HyperparametersKeys.OPTIMIZER, ["param_groups", 0, "lr"]),
+                                            "custom parameter": (HyperparametersKeys.CUSTOM, get_custom_parameter)
                                         }
         :param static_hyperparameters:  If needed to track a hyperparameter one time per run it should be passed here.
                                         The parameter expects a dictionary where the keys are the
@@ -417,6 +423,14 @@ class TensorboardLoggingCallback(LoggingCallback):
         # Setup all the results and hyperparameters dictionaries:
         super(TensorboardLoggingCallback, self).on_run_begin()
 
+        # Log the model:
+        self._logger.log_model_to_tensorboard(
+            model=self._objects[self._ObjectKeys.MODEL],
+            input_sample=next(self._objects[self._ObjectKeys.TRAINING_SET].__iter__())[
+                0
+            ],
+        )
+
         # Log hyperparameters:
         self._logger.log_parameters_table_to_tensorboard()
         self._logger.log_dynamic_hyperparameters_to_tensorboard()
@@ -426,20 +440,6 @@ class TensorboardLoggingCallback(LoggingCallback):
         self._logger.log_weights_images_to_tensorboard()
         self._logger.log_weights_statistics()
         self._logger.log_statistics_to_tensorboard()
-
-    def on_run_end(self):
-        """
-        Before the trainer / evaluator run ends, this method will be called to log the model's graph.
-        """
-        super(TensorboardLoggingCallback, self).on_run_end()
-
-        # Store the trained model:
-        self._logger.log_model_to_tensorboard(
-            model=self._objects[self._ObjectKeys.MODEL],
-            input_sample=next(self._objects[self._ObjectKeys.TRAINING_SET].__iter__())[
-                0
-            ],
-        )
 
     def on_epoch_end(self, epoch: int):
         """

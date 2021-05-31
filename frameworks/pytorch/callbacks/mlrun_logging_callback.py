@@ -1,4 +1,4 @@
-from typing import Union, List, Dict, Tuple
+from typing import Union, List, Dict, Tuple, Callable
 import mlrun
 from frameworks._common.loggers import MLRunLogger, TrackableType
 from frameworks.pytorch.callbacks.logging_callback import LoggingCallback
@@ -29,8 +29,10 @@ class MLRunLoggingCallback(LoggingCallback):
     def __init__(
         self,
         context: mlrun.MLClientCtx,
-        custom_objects: Dict,
-        dynamic_hyperparameters: Dict[str, Tuple[str, List[Union[str, int]]]] = None,
+        custom_objects: Dict[Union[str, List[str]], str],
+        dynamic_hyperparameters: Dict[
+            str, Tuple[str, Union[List[Union[str, int]], Callable[[], TrackableType]]]
+        ] = None,
         static_hyperparameters: Dict[
             str, Union[TrackableType, Tuple[str, List[Union[str, int]]]]
         ] = None,
@@ -53,10 +55,14 @@ class MLRunLoggingCallback(LoggingCallback):
                                         be passed here. The parameter expects a dictionary where the keys are the
                                         hyperparameter chosen names and the values are tuples of object key and a list
                                         with the key chain. A key chain is a list of keys and indices to know how to
-                                        access the needed hyperparameter. For example, to track the 'lr' attribute of
-                                        an optimizer, one should pass:
+                                        access the needed hyperparameter. If the hyperparameter is not of accessible
+                                        from any of the HyperparametersKeys, a custom callable method can be passed in
+                                        the tuple instead of the key chain when providing the word
+                                        HyperparametersKeys.CUSTOM. For example, to track the 'lr' attribute of
+                                        an optimizer and a custom parameter, one should pass:
                                         {
-                                            "learning rate": (HyperparametersKeys.OPTIMIZER, ["param_groups", 0, "lr"])
+                                            "learning rate": (HyperparametersKeys.OPTIMIZER, ["param_groups", 0, "lr"]),
+                                            "custom parameter": (HyperparametersKeys.CUSTOM, get_custom_parameter)
                                         }
         :param static_hyperparameters:  If needed to track a hyperparameter one time per run it should be passed here.
                                         The parameter expects a dictionary where the keys are the

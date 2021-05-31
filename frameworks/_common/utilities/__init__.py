@@ -1,2 +1,1 @@
 from frameworks._common.utilities.model_handler import ModelHandler
-from frameworks._common.utilities.horovod_handler import HorovodHandler

@@ -1,1 +1,1 @@
-from frameworks.pytorch.training.trainer import PyTorchTrainer
+from frameworks.pytorch.training.trainer import Trainer

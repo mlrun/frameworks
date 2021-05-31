@@ -1,4 +1,4 @@
-from typing import Union, List, Dict, Tuple
+from typing import Union, List, Dict, Tuple, Callable, Collection
 import numpy as np
 from torch import Tensor
 from torch.nn import Module, Parameter
@@ -22,6 +22,7 @@ class HyperparametersKeys:
     LOSS_FUNCTION = "loss_function"
     OPTIMIZER = "optimizer"
     SCHEDULER = "scheduler"
+    CUSTOM = "custom"
 
 
 class LoggingCallback(Callback):
@@ -41,7 +42,9 @@ class LoggingCallback(Callback):
 
     def __init__(
         self,
-        dynamic_hyperparameters: Dict[str, Tuple[str, List[Union[str, int]]]] = None,
+        dynamic_hyperparameters: Dict[
+            str, Tuple[str, Union[List[Union[str, int]], Callable[[], TrackableType]]]
+        ] = None,
         static_hyperparameters: Dict[
             str, Union[TrackableType, Tuple[str, List[Union[str, int]]]]
         ] = None,
@@ -54,10 +57,14 @@ class LoggingCallback(Callback):
                                         be passed here. The parameter expects a dictionary where the keys are the
                                         hyperparameter chosen names and the values are tuples of object key and a list
                                         with the key chain. A key chain is a list of keys and indices to know how to
-                                        access the needed hyperparameter. For example, to track the 'lr' attribute of
-                                        an optimizer, one should pass:
+                                        access the needed hyperparameter. If the hyperparameter is not of accessible
+                                        from any of the HyperparametersKeys, a custom callable method can be passed in
+                                        the tuple instead of the key chain when providing the word
+                                        HyperparametersKeys.CUSTOM. For example, to track the 'lr' attribute of
+                                        an optimizer and a custom parameter, one should pass:
                                         {
-                                            "learning rate": (HyperparametersKeys.OPTIMIZER, ["param_groups", 0, "lr"])
+                                            "learning rate": (HyperparametersKeys.OPTIMIZER, ["param_groups", 0, "lr"]),
+                                            "custom parameter": (HyperparametersKeys.CUSTOM, get_custom_parameter)
                                         }
         :param static_hyperparameters:  If needed to track a hyperparameter one time per run it should be passed here.
                                         The parameter expects a dictionary where the keys are the
@@ -194,7 +201,7 @@ class LoggingCallback(Callback):
                     self._logger.log_static_hyperparameter(
                         parameter_name=name,
                         value=self._get_hyperparameter(
-                            source=self._objects[value[0]], key_chain=value[1]
+                            source=value[0], key_chain=value[1]
                         ),
                     )
                 else:
@@ -207,9 +214,7 @@ class LoggingCallback(Callback):
             for name, (source, key_chain) in self._dynamic_hyperparameters_keys.items():
                 self._logger.log_dynamic_hyperparameter(
                     parameter_name=name,
-                    value=self._get_hyperparameter(
-                        source=self._objects[source], key_chain=key_chain
-                    ),
+                    value=self._get_hyperparameter(source=source, key_chain=key_chain),
                 )
 
     def on_epoch_begin(self, epoch: int):
@@ -230,14 +235,12 @@ class LoggingCallback(Callback):
         # Update the dynamic hyperparameters dictionary:
         if self._dynamic_hyperparameters_keys:
             for parameter_name, (
-                source_name,
+                source,
                 key_chain,
             ) in self._dynamic_hyperparameters_keys.items():
                 self._logger.log_dynamic_hyperparameter(
                     parameter_name=parameter_name,
-                    value=self._get_hyperparameter(
-                        source=self._objects[source_name], key_chain=key_chain
-                    ),
+                    value=self._get_hyperparameter(source=source, key_chain=key_chain),
                 )
 
     def on_train_begin(self):
@@ -245,6 +248,31 @@ class LoggingCallback(Callback):
         After the trainer training of the current epoch begins, this method will be called.
         """
         self._log_iteration = False
+
+    def on_train_end(self):
+        """
+        Before the trainer training of the current epoch ends, this method will be called to lof the training summaries.
+        """
+        # Store the last training loss result of this epoch:
+        loss_name = self._get_metric_name(
+            metric_type=self._MetricType.LOSS,
+            metric_function=self._objects[self._ObjectKeys.LOSS_FUNCTION],
+        )
+        self._logger.log_training_summary(
+            metric_name=loss_name,
+            result=float(self._logger.training_results[loss_name][-1][-1]),
+        )
+
+        # Store the last training metrics results of this epoch:
+        for metric_function in self._objects[self._ObjectKeys.METRIC_FUNCTIONS]:
+            metric_name = self._get_metric_name(
+                metric_type=self._MetricType.ACCURACY,
+                metric_function=metric_function,
+            )
+            self._logger.log_training_summary(
+                metric_name=metric_name,
+                result=float(self._logger.training_results[metric_name][-1][-1]),
+            )
 
     def on_validation_begin(self):
         """
@@ -400,50 +428,56 @@ class LoggingCallback(Callback):
         """
         self._log_iteration = batch % self._per_iteration_logging == 0
 
-    @staticmethod
-    def _get_metric_name(metric_type: str, metric_function: MetricFunctionType):
-        """
-        Get the given metric name.
-
-        :param metric_type:     Each metric can be either 'loss' or 'accuracy'.
-        :param metric_function: The metric function to get its name.
-
-        :return: The metric name.
-        """
-        if isinstance(metric_function, Module):
-            function_name = metric_function.__class__.__name__
-        else:
-            function_name = metric_function.__name__
-        return "{}:{}".format(function_name, metric_type)
-
-    @staticmethod
-    def _get_hyperparameter(source, key_chain: List[Union[str, int]]) -> TrackableType:
+    def _get_hyperparameter(
+        self,
+        source: str,
+        key_chain: Union[List[Union[str, int]], Callable[[], TrackableType]],
+    ) -> TrackableType:
         """
         Access the hyperparameter from the source using the given key chain.
 
-        :param source:    The object to get the hyperparamter value from.
-        :param key_chain: The keys and indices to get to the hyperparameter from the given source object.
+        :param source:    The object string (out of 'HyperparametersKeys') to get the hyperparamter value from.
+        :param key_chain: The keys and indices to get to the hyperparameter from the given source object or if the
+                          source is equal to 'HyperparametersKeys.CUSTOM', the callable custom method to get the value
+                          to track.
 
         :return: The hyperparameter value.
 
+        :raise TypeError:  In case the source is 'HyperparametersKeys.CUSTOM' but the given value is not callable.
         :raise KeyError:   In case the one of the keys in the key chain is incorrect.
         :raise IndexError: In case the one of the keys in the key chain is incorrect.
         :raise ValueError: In case the value is not trackable.
         """
         # Get the value using the provided key chain:
-        value = source.__dict__
-        for key in key_chain:
+        if source == HyperparametersKeys.CUSTOM:
+            # It is a custom callable method:
             try:
-                if isinstance(key, int):
-                    value = value[key]
-                else:
-                    value = getattr(value, key)
-            except KeyError or IndexError as KeyChainError:
-                raise KeyChainError(
-                    "Error during getting a hyperparameter value from the {} object. "
-                    "The {} in it does not have the following key/index from the key provided: {}"
-                    "".format(source.__class__, value.__class__, key)
+                value = key_chain()
+            except TypeError:
+                raise TypeError(
+                    "The given value of the source '{}' "
+                    "is of type '{}' and is not callable."
+                    "".format(source, type(key_chain))
                 )
+        else:
+            # Needed to be extracted via key chain:
+            value = self._objects[source]
+            for key in key_chain:
+                try:
+                    if (
+                        isinstance(value, dict)
+                        or isinstance(value, list)
+                        or isinstance(value, tuple)
+                    ):
+                        value = value[key]
+                    else:
+                        value = getattr(value, key)
+                except KeyError or IndexError or AttributeError as KeyChainError:
+                    raise KeyChainError(
+                        "Error during getting a hyperparameter value from the {} object. "
+                        "The {} in it does not have the following key/index from the key provided: {}"
+                        "".format(source.__class__, value.__class__, key)
+                    )
 
         # Parse the value:
         if isinstance(value, Tensor) or isinstance(value, Parameter):
@@ -476,3 +510,19 @@ class LoggingCallback(Callback):
                 "".format(key_chain, type(value))
             )
         return value
+
+    @staticmethod
+    def _get_metric_name(metric_type: str, metric_function: MetricFunctionType):
+        """
+        Get the given metric name.
+
+        :param metric_type:     Each metric can be either 'loss' or 'accuracy'.
+        :param metric_function: The metric function to get its name.
+
+        :return: The metric name.
+        """
+        if isinstance(metric_function, Module):
+            function_name = metric_function.__class__.__name__
+        else:
+            function_name = metric_function.__name__
+        return "{}:{}".format(function_name, metric_type)

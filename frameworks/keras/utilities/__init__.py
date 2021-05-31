@@ -1,2 +1,1 @@
 from frameworks.keras.utilities.model_handler import KerasModelHandler
-from frameworks.keras.utilities.horovod_handler import KerasHorovodHandler

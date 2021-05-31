@@ -1,26 +1,30 @@
-from typing import Union, Tuple, List, Type
+from typing import Union, Tuple, List, Dict
 import sys
+
 from tabulate import tabulate
 from tqdm import tqdm
+
 import torch
 from torch import Tensor
 from torch.nn import Module
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.optim import Optimizer
+
 from mlrun.execution import MLClientCtx
 from frameworks.pytorch.callbacks import (
     Callback,
     MetricFunctionType,
     MetricValueType,
+    TrackableType,
+    HyperparametersKeys,
     MLRunLoggingCallback,
     TensorboardLoggingCallback,
 )
 from frameworks.pytorch.utilities.callbacks_handler import CallbacksHandler
-from frameworks.pytorch.utilities.horovod_handler import PyTorchHorovodHandler
 
 
-class PyTorchTrainer:
+class Trainer:
     """
     An interface for a pytorch model trainer, supporting the package's loggers and automatic logging.
     """
@@ -42,13 +46,11 @@ class PyTorchTrainer:
         Initialize a trainer for a given experiment objects.
         :param model:                 The model to train.
         :param training_set:          A dataset or data loader for the training process. If a dataset is given, a
-                                      defaulted data loader would be used for training. For Horovod, a dataset must be
-                                      provided and not a data loader.
+                                      defaulted data loader would be used for training.
         :param loss_function:         The loss function to use during training.
         :param optimizer:             The optimizer to use during the training.
         :param validation_set:        A dataset or data loader for the validation process. If a dataset is given, a
-                                      defaulted data loader would be used for training. For Horovod, a dataset must be
-                                      provided and not a data loader.
+                                      defaulted data loader would be used for training.
         :param metric_functions:      The metrics to use on training and validation.
         :param scheduler:             Scheduler to use on the optimizer at the end of each epoch. The scheduler must
                                       have a 'step' method with no input.
@@ -58,13 +60,21 @@ class PyTorchTrainer:
         :param validation_iterations: Amount of iterations (batches) to perform on each epoch's validation. If 'None'
                                       the entire validation set will be used.
         """
-        # TODO: Align features of keras to PyTorch (like validation frequency).
+        # TODO: Add and align features of keras to PyTorch (like validation frequency for example).
         # Store the configurations:
         self._model = model
-        self._training_set = training_set
+        self._training_set = (
+            training_set
+            if isinstance(training_set, DataLoader)
+            else DataLoader(training_set)
+        )
         self._loss_function = loss_function
         self._optimizer = optimizer
-        self._validation_set = validation_set
+        self._validation_set = (
+            validation_set
+            if isinstance(validation_set, DataLoader)
+            else DataLoader(validation_set)
+        )
         self._metric_functions = (
             metric_functions if metric_functions is not None else []
         )
@@ -98,8 +108,8 @@ class PyTorchTrainer:
         # Setup horovod:
         hvd = None
         if use_horovod:
-            PyTorchHorovodHandler.import_horovod()
-            hvd = PyTorchHorovodHandler.get_horovod()
+            import horovod.torch as hvd
+
             hvd.init()
 
         # Setup cuda:
@@ -121,7 +131,7 @@ class PyTorchTrainer:
         else:
             callbacks_handler = CallbacksHandler(callbacks=callbacks)
 
-        # Prepare horovod for the run:
+        # Prepare horovod for the run if needed:
         if use_horovod:
             # Partition dataset among workers using DistributedSampler:
             self._training_set.sampler = DistributedSampler(
@@ -199,6 +209,11 @@ class PyTorchTrainer:
     def auto_log(
         self,
         context: MLClientCtx,
+        custom_objects: Dict[Union[str, List[str]], str],
+        static_hyperparameters: Dict[
+            str, Union[TrackableType, Tuple[str, List[Union[str, int]]]]
+        ] = None,
+        log_learning_rate: bool = True,
         use_cuda: bool = True,
         use_horovod: bool = False,
     ):
@@ -207,21 +222,62 @@ class PyTorchTrainer:
         MLRun and Tensorboard, see 'pytorch.callbacks.MLRunLoggingCallback' and
         'pytorch.callbacks.TensorboardLoggingCallback'.
 
-        :param context:     The context to use for the logs.
-        :param use_cuda:    Whether or not to use cuda. Only relevant if cuda is available. Defaulted to True.
-        :param use_horovod: Whether or not to use horovod - a distributed training framework. Defaulted to False.
+        :param context:                The context to use for the logs.
+        :param custom_objects:         Custom objects the model is using. Expecting a dictionary with the classes names
+                                       to import as keys (if multiple classes needed to be imported from the same py
+                                       file a list can be given) and the python file from where to import them as their
+                                       values. The model class itself must be specified in order to properly save it for
+                                       later being loaded with a handler. For example:
+                                       {
+                                           "class_name": "/path/to/model.py",
+                                           ["layer1", "layer2"]: "/path/to/custom_layers.py"
+                                       }
+        :param static_hyperparameters: A dictionary of static hyperparameters to note in the logs. The parameter expects
+                                       a dictionary where the keys are the hyperparameter chosen names and the values
+                                       are tuples of string (from HyperparametersKeys) and a key chain - a list of keys
+                                       and indices to know how to access the needed hyperparameter from the object. For
+                                       example, to track the 'epsilon' attribute of an optimizer and the 'epochs' of an
+                                       experiment run, one should pass:
+                                       {
+                                           "epsilon": ["optimizer", "epsilon"],
+                                           "epochs": 7
+                                       }
+                                       Defaulted to the following static hyperparameters: batch size, epochs, training
+                                       and validation (if given validation set) iterations.
+        :param log_learning_rate:      Whether or not to log the learning rate of the given optimizer. Notice, if the
+                                       learning rate is not accessible via the common key chain
+                                       (param_group 0 -> 'lr'/'learning_rate') it won't be tracked. To track it you
+                                       should create the callbacks and use the 'run' method. Defaulted to True.
+        :param use_cuda:               Whether or not to use cuda. Only relevant if cuda is available. Defaulted to
+                                       True.
+        :param use_horovod:            Whether or not to use horovod - a distributed training framework. Defaulted to
+                                       False.
         """
-        static_hyperparameters = {
-            "Batch Size": self._training_set.batch_size,
-            "Epochs": self._epochs,
-            "Training Iterations": self._training_iterations,
-            "Validation Iterations": self._validation_iterations,
-        }
-        dynamic_hyperparameters = {}  # TODO: Try to get the learning rate from the optimizer
+        # Define the static hyperparameters:
+        if static_hyperparameters is None:
+            static_hyperparameters = {
+                "Batch Size": self._training_set.batch_size,
+                "Epochs": self._epochs,
+                "Training Iterations": self._training_iterations,
+            }
+            if self._validation_set is not None:
+                static_hyperparameters[
+                    "Validation Iterations"
+                ] = self._validation_iterations
+
+        # Define the dynamic hyperparameters:
+        dynamic_hyperparameters = {}
+        if log_learning_rate:
+            learning_rate = self._get_learning_rate()
+            if learning_rate is not None:
+                dynamic_hyperparameters["Learning Rate"] = learning_rate
+
+        # Run the trainer:
         self.run(
             callbacks=[
                 MLRunLoggingCallback(
                     context=context,
+                    custom_objects=custom_objects,
                     static_hyperparameters=static_hyperparameters,
                     dynamic_hyperparameters=dynamic_hyperparameters,
                 ),
@@ -235,6 +291,19 @@ class PyTorchTrainer:
             use_cuda=use_cuda,
             use_horovod=use_horovod,
         )
+
+    def _get_learning_rate(self) -> Union[Tuple[str, List[Union[str, int]]], None]:
+        """
+        Try and get the learning rate value form the stored optimizer.
+
+        :return: The key chain to get the optimizer learning rate value or None if the learning rate could not be
+                 accessed via the common key.
+        """
+        if "lr" in self._optimizer.param_groups[0]:
+            return HyperparametersKeys.OPTIMIZER, ["param_groups", 0, "lr"]
+        if "learning_rate" in self._optimizer.param_groups[0]:
+            return HyperparametersKeys.OPTIMIZER, ["param_groups", 0, "learning_rate"]
+        return None
 
     def _metrics(self, y_pred: Tensor, y_true: Tensor) -> List[float]:
         """
@@ -283,6 +352,9 @@ class PyTorchTrainer:
                 x = x.cuda()
                 y_true = y_true.cuda()
 
+            # Zero the parameters gradients:
+            self._optimizer.zero_grad()
+
             # Infer the input:
             y_pred = self._model(x)
 
@@ -305,7 +377,6 @@ class PyTorchTrainer:
             # Step optimizer:
             callbacks_handler.on_optimizer_step_begin()
             self._optimizer.step()
-            self._optimizer.zero_grad()
             callbacks_handler.on_optimizer_step_end()
 
             # End of batch callbacks:
@@ -386,7 +457,7 @@ class PyTorchTrainer:
 
         # Calculate the final average of the loss and accuracy values:
         loss_value = sum(losses) / len(losses)
-        metric_values = [(sum(metric) / len(metric)) for metric in metrics]
+        metric_values = [(sum(metric) / len(metric)) for metric in metrics]  # TODO: Fix division by 0 when no metrics were given
         return loss_value, metric_values
 
     def _print_results(self, loss_value: Tensor, metric_values: List[float]):

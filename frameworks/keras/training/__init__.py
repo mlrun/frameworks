@@ -1,16 +1,23 @@
 from typing import Union, List, Dict, Tuple
 import os
+
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import Model
-from tensorflow.keras.callbacks import Callback, ModelCheckpoint, TensorBoard
+from tensorflow.keras.callbacks import (
+    Callback,
+    ModelCheckpoint,
+    TensorBoard,
+    ProgbarLogger,
+    CSVLogger,
+    BaseLogger,
+)
 from tensorflow.keras.losses import Loss
 from tensorflow.keras.optimizers import Optimizer
 from tensorflow.keras.metrics import Metric
+
 import mlrun
 from mlrun import MLClientCtx
-import horovod.tensorflow.keras as hvd
-from frameworks.keras.utilities import KerasHorovodHandler
 from frameworks.keras.callbacks import (
     MLRunLoggingCallback,
     TensorboardLoggingCallback,
@@ -19,7 +26,10 @@ from frameworks.keras.callbacks import (
 
 
 def get_auto_logging_callbacks(
-    context: MLClientCtx, static_hyperparameters: Dict[str, TrackableType] = None
+    context: MLClientCtx,
+    static_hyperparameters: Dict[
+        str, Union[TrackableType, List[Union[str, int]]]
+    ] = None,
 ) -> List[Callback]:
     """
     Get the defaulted logging callbacks by MLRun. Given the context, the method will setup a list of callbacks with the
@@ -29,7 +39,15 @@ def get_auto_logging_callbacks(
     'mlrun.frameworks.keras.callbacks.TensorboardLoggingCallback'.
 
     :param context:                The MLRun context to log with.
-    :param static_hyperparameters: A dictionary of static hyperparameters to note in the logs.
+    :param static_hyperparameters: A dictionary of static hyperparameters to note in the logs. The parameter expects a
+                                   dictionary where the keys are the hyperparameter chosen names and the values are the
+                                   hyperparameter static value or a key chain - a list of keys and indices to know how
+                                   to access the needed hyperparameter. For example, to track the 'epsilon' attribute of
+                                   an optimizer and the 'epochs' of an experiment run, one should pass:
+                                   {
+                                       "epsilon": ["optimizer", "epsilon"],
+                                       "epochs": 7
+                                   }
 
     :return: The initialized logging callbacks of MLRun.
     """
@@ -51,10 +69,13 @@ def get_auto_logging_callbacks(
 
 # List of all callbacks to should be applied only on rank 0 while using horovod:
 _RANK_0_ONLY_CALLBACKS = [
-    ModelCheckpoint.__name__,
-    TensorBoard.__name__,
     MLRunLoggingCallback.__name__,
     TensorboardLoggingCallback.__name__,
+    ModelCheckpoint.__name__,
+    TensorBoard.__name__,
+    ProgbarLogger.__name__,
+    CSVLogger.__name__,
+    BaseLogger.__name__,
 ]  # type: List[str]
 
 
@@ -105,9 +126,8 @@ def compile_with_horovod(
                    * Horovod applied callbacks list.
                    * Verbose value.
     """
-    # # Import horovod:
-    # KerasHorovodHandler.import_horovod()
-    # hvd = KerasHorovodHandler.get_horovod()
+    # Import horovod:
+    import horovod.tensorflow.keras as hvd
 
     # Initialize horovod:
     hvd.init()
@@ -155,7 +175,7 @@ def compile_with_horovod(
         # Using `lr = 1.0 * hvd.size()` from the very beginning leads to worse final accuracy. Scale the learning rate
         # `lr = 1.0` ---> `lr = 1.0 * hvd.size()` during the first five epochs. See https://arxiv.org/abs/1706.02677
         # for details.
-        hvd.callbacks.LearningRateWarmupCallback(warmup_epochs=5, verbose=1),
+        hvd.callbacks.LearningRateWarmupCallback(initial_lr=optimizer.lr),
     ]
     if hvd.rank() != 0:
         callbacks = [
