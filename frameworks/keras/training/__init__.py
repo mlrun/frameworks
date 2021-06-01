@@ -181,7 +181,7 @@ def compile_with_horovod(
         callbacks = [
             callback
             for callback in callbacks
-            if callback.__name__ not in _RANK_0_ONLY_CALLBACKS
+            if type(callback).__name__ not in _RANK_0_ONLY_CALLBACKS
         ]
     callbacks = horovod_callbacks + callbacks
 
