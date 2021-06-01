@@ -96,7 +96,7 @@ class MLRunLogger(Logger):
                     metrics_prefix, metric_name, len(metric_epochs)
                 )
                 chart_artifact = ChartArtifact(
-                    key="{}.html".format(chart_name),
+                    key=chart_name,
                     header=["iteration", "result"],
                     data=list(
                         np.array(
@@ -153,7 +153,7 @@ class MLRunLogger(Logger):
             # Create the chart artifact:
             chart_name = "{}_summary".format(metric_name)
             chart_artifact = ChartArtifact(
-                key="{}.html".format(chart_name),
+                key=chart_name,
                 header=header,
                 data=data,
             )
@@ -169,7 +169,7 @@ class MLRunLogger(Logger):
         for parameter_name, parameter_values in self._dynamic_hyperparameters.items():
             # Create the chart artifact:
             chart_artifact = ChartArtifact(
-                key="{}.html".format(parameter_name),
+                key=parameter_name,
                 header=["epoch", "value"],
                 data=list(
                     np.array(

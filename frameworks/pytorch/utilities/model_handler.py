@@ -103,10 +103,10 @@ class PyTorchModelHandler(ModelHandler):
 
         # Set the output path:
         if output_path is None:
-            output_path = self._context.artifact_path
+            output_path = os.path.join(self._context.artifact_path, self._model_name)
 
         # Save the model:
-        pt_file_path = os.path.join(output_path, "{}.pt".format(self._model_name))
+        pt_file_path = "{}.pt".format(self._model_name)
         torch.save(self._model.state_dict(), pt_file_path)
         if update_paths:
             self._pt_file_path = pt_file_path
@@ -116,8 +116,8 @@ class PyTorchModelHandler(ModelHandler):
         if self._context:
             artifacts = {
                 "model_file": self._context.log_artifact(
-                    os.path.basename(pt_file_path).split('.')[0],
-                    local_path=os.path.basename(pt_file_path),
+                    pt_file_path,
+                    local_path=pt_file_path,
                     artifact_path=output_path,
                     db_key=False,
                 )
