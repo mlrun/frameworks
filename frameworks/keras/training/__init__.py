@@ -144,9 +144,6 @@ def compile_with_horovod(
         # No GPUs were found, or 'use_cuda' was false:
         os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-    # Adjust the learning rate based on the number of GPUs:
-    optimizer.lr = optimizer.lr * hvd.size()
-
     # Wrap the optimizer in horovod's distributed optimizer: in hvd.DistributedOptimizer.
     optimizer = hvd.DistributedOptimizer(optimizer)
 
@@ -166,15 +163,8 @@ def compile_with_horovod(
     # Setup the callbacks:
     callbacks = [] if callbacks is None else callbacks
     horovod_callbacks = [
-        # Broadcast initial variable states from rank 0 to all other processes. This is necessary to ensure consistent
-        # initialization of all workers when training is started with random weights or restored from a checkpoint.
         hvd.callbacks.BroadcastGlobalVariablesCallback(0),
-        # Average metrics among workers at the end of every epoch. This callback must be in the list before the
-        # 'ReduceLROnPlateau', TensorBoard or other metrics-based callbacks.
         hvd.callbacks.MetricAverageCallback(),
-        # Using `lr = 1.0 * hvd.size()` from the very beginning leads to worse final accuracy. Scale the learning rate
-        # `lr = 1.0` ---> `lr = 1.0 * hvd.size()` during the first five epochs. See https://arxiv.org/abs/1706.02677
-        # for details.
         hvd.callbacks.LearningRateWarmupCallback(initial_lr=optimizer.lr),
     ]
     if hvd.rank() != 0:
