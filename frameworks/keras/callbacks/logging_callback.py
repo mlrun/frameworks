@@ -53,6 +53,7 @@ class LoggingCallback(Callback):
                                         Defaulted to 1 (meaning every iteration will be logged).
         """
         super(LoggingCallback, self).__init__()
+        self._supports_tf_logs = True
 
         # Store the configurations:
         self._per_iteration_logging = per_iteration_logging

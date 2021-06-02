@@ -144,6 +144,9 @@ def compile_with_horovod(
         # No GPUs were found, or 'use_cuda' was false:
         os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
+    # Adjust learning rate based on the number of GPUs:
+    optimizer.lr = optimizer.lr * hvd.size()
+
     # Wrap the optimizer in horovod's distributed optimizer: in hvd.DistributedOptimizer.
     optimizer = hvd.DistributedOptimizer(optimizer)
 
@@ -162,9 +165,11 @@ def compile_with_horovod(
 
     # Setup the callbacks:
     callbacks = [] if callbacks is None else callbacks
+    metric_average_callback = hvd.callbacks.MetricAverageCallback()
+    metric_average_callback._supports_tf_logs = True
     horovod_callbacks = [
         hvd.callbacks.BroadcastGlobalVariablesCallback(0),
-        hvd.callbacks.MetricAverageCallback(),
+        metric_average_callback,
         hvd.callbacks.LearningRateWarmupCallback(initial_lr=float(optimizer.lr)),
     ]
     if hvd.rank() != 0:
