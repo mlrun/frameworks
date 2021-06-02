@@ -165,7 +165,7 @@ def compile_with_horovod(
     horovod_callbacks = [
         hvd.callbacks.BroadcastGlobalVariablesCallback(0),
         hvd.callbacks.MetricAverageCallback(),
-        hvd.callbacks.LearningRateWarmupCallback(initial_lr=optimizer.lr),
+        hvd.callbacks.LearningRateWarmupCallback(initial_lr=float(optimizer.lr)),
     ]
     if hvd.rank() != 0:
         callbacks = [
