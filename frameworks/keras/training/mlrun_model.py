@@ -41,6 +41,8 @@ class MLRunModel(keras.Model):
         # Add the MLRun model properties:
         setattr(model, "_callbacks", [])
         setattr(model, "_hvd", None)
+        setattr(model, "_MLRUN_MODEL_METHODS", MLRunModel._MLRUN_MODEL_METHODS)
+        setattr(model, "_RANK_0_ONLY_CALLBACKS", MLRunModel._RANK_0_ONLY_CALLBACKS)
 
         # Add the MLRun model methods:
         for method_name in ["auto_log", "use_horovod", "note_rank_0_callback"]:
