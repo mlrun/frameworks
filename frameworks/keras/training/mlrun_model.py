@@ -42,15 +42,10 @@ class MLRunModel(keras.Model):
         setattr(model, "_callbacks", [])
         setattr(model, "_hvd", None)
 
-        # Add the MLRun model attributes:
-        for attribute_name in MLRunModel.__dict__:
-            if attribute_name not in model.__dir__() and attribute_name != 'wrap':
-                attribute = getattr(MLRunModel, attribute_name)
-                # Check if its a function and if it is, it is not a static function:
-                if isinstance(attribute, Callable) and not isinstance(attribute, FunctionType):
-                    setattr(model, attribute_name, MethodType(attribute, model))
-                else:
-                    setattr(model, attribute_name, attribute)
+        # Add the MLRun model methods:
+        for method_name in ["auto_log", "use_horovod", "note_rank_0_callback"]:
+            if method_name not in model.__dir__():
+                setattr(model, method_name, MethodType(getattr(MLRunModel, method_name), model))
 
         # Wrap the compile method:
         def compile_wrapper(method):
