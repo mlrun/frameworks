@@ -14,14 +14,6 @@ class LoggingCallback(Callback):
     'static_hyperparameters', 'dynamic_hyperparameters' and 'summaries' properties.
     """
 
-    class _MetricType:
-        """
-        Metric can be of two types, a loss metric or accuracy metric.
-        """
-
-        LOSS = "Loss"
-        ACCURACY = "Accuracy"
-
     def __init__(
         self,
         dynamic_hyperparameters: Dict[str, List[Union[str, int]]] = None,
