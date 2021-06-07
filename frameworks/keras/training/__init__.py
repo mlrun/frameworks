@@ -24,8 +24,8 @@ def wrap_model(
     :return: MLRun model wrapping the model.
     """
     model = MLRunModel.wrap(model=model)
-    if context is not None and auto_log:
-        model.auto_log(context=context)
     if use_horovod:
         model.use_horovod()
+    if context is not None and auto_log:
+        model.auto_log(context=context)
     return model

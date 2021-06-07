@@ -1,6 +1,7 @@
 from typing import Union, List, Dict, Tuple, Callable
 from types import MethodType, FunctionType
 import os
+import importlib
 
 import tensorflow as tf
 from tensorflow import keras
@@ -15,7 +16,6 @@ from tensorflow.keras.callbacks import (
 from tensorflow.keras.optimizers import Optimizer
 
 import mlrun
-from mlrun import MLClientCtx
 from frameworks.keras.callbacks import (
     MLRunLoggingCallback,
     TensorboardLoggingCallback,
@@ -32,7 +32,8 @@ class MLRunModel(keras.Model):
     @staticmethod
     def wrap(model: keras.Model) -> keras.Model:
         """
-        Wrap the given model with MLRun model features - including its attributes and methods.
+        Wrap the given model with MLRun model features, providing it with MLRun model attributes including its
+        parameters and methods.
 
         :param model: The model to wrap.
 
@@ -45,9 +46,19 @@ class MLRunModel(keras.Model):
         setattr(model, "_RANK_0_ONLY_CALLBACKS", MLRunModel._RANK_0_ONLY_CALLBACKS)
 
         # Add the MLRun model methods:
-        for method_name in ["auto_log", "use_horovod", "note_rank_0_callback"]:
+        for method_name in [
+            "auto_log",
+            "use_horovod",
+            "note_rank_0_callback",
+            "_pre_compile",
+            "_pre_fit",
+        ]:
             if method_name not in model.__dir__():
-                setattr(model, method_name, MethodType(getattr(MLRunModel, method_name), model))
+                setattr(
+                    model,
+                    method_name,
+                    MethodType(getattr(MLRunModel, method_name), model),
+                )
 
         # Wrap the compile method:
         def compile_wrapper(method):
@@ -56,10 +67,12 @@ class MLRunModel(keras.Model):
                 (
                     kwargs["optimizer"],
                     experimental_run_tf_function,
-                ) = MLRunModel._pre_compile(self=model, optimizer=kwargs["optimizer"])
+                ) = model._pre_compile(optimizer=kwargs["optimizer"])
                 # Assign parameters:
                 if experimental_run_tf_function is not None:
-                    kwargs["experimental_run_tf_function"] = experimental_run_tf_function
+                    kwargs[
+                        "experimental_run_tf_function"
+                    ] = experimental_run_tf_function
                 # Call the original compile method:
                 method(*args, **kwargs)
 
@@ -88,8 +101,7 @@ class MLRunModel(keras.Model):
                     kwargs["verbose"],
                     kwargs["steps_per_epoch"],
                     kwargs["validation_steps"],
-                ) = MLRunModel._pre_fit(
-                    self=model,
+                ) = model._pre_fit(
                     optimizer=model.optimizer,
                     callbacks=kwargs["callbacks"],
                     verbose=kwargs["verbose"],
@@ -117,7 +129,7 @@ class MLRunModel(keras.Model):
 
     def auto_log(
         self,
-        context: MLClientCtx,
+        context: mlrun.MLClientCtx,
         static_hyperparameters: Dict[
             str, Union[TrackableType, List[Union[str, int]]]
         ] = None,
@@ -153,7 +165,6 @@ class MLRunModel(keras.Model):
                 context=context,
                 static_hyperparameters=static_hyperparameters,
                 dynamic_hyperparameters=dynamic_hyperparameters,
-                weights=True,
             )
         )
 
@@ -162,13 +173,10 @@ class MLRunModel(keras.Model):
         Setup the model or wrapped model to run with horovod.
         """
         # Import horovod:
-        import horovod.tensorflow.keras as hvd
+        self._hvd = importlib.import_module('horovod.tensorflow.keras')
 
         # Initialize horovod:
-        hvd.init()
-
-        # Link the horovod to the class pointer:
-        self._hvd = hvd
+        self._hvd.init()
 
     def compile(
         self,
