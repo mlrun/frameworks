@@ -42,7 +42,6 @@ class MLRunModel(keras.Model):
         # Add the MLRun model properties:
         setattr(model, "_callbacks", [])
         setattr(model, "_hvd", None)
-        setattr(model, "_MLRUN_MODEL_METHODS", MLRunModel._MLRUN_MODEL_METHODS)
         setattr(model, "_RANK_0_ONLY_CALLBACKS", MLRunModel._RANK_0_ONLY_CALLBACKS)
 
         # Add the MLRun model methods:
@@ -61,27 +60,28 @@ class MLRunModel(keras.Model):
                 )
 
         # Wrap the compile method:
-        def compile_wrapper(method):
+        def compile_wrapper(compile_method):
             def wrapper(*args, **kwargs):
                 # Call the pre compile method:
                 (
-                    kwargs["optimizer"],
+                    optimizer,
                     experimental_run_tf_function,
                 ) = model._pre_compile(optimizer=kwargs["optimizer"])
                 # Assign parameters:
+                kwargs["optimizer"] = optimizer
                 if experimental_run_tf_function is not None:
                     kwargs[
                         "experimental_run_tf_function"
                     ] = experimental_run_tf_function
                 # Call the original compile method:
-                method(*args, **kwargs)
+                compile_method(*args, **kwargs)
 
             return wrapper
 
         setattr(model, "compile", compile_wrapper(model.compile))
 
         # Wrap the fit method:
-        def fit_wrapper(method):
+        def fit_wrapper(fit_method):
             def wrapper(*args, **kwargs):
                 # Setup the callbacks list:
                 if "callbacks" not in kwargs or kwargs["callbacks"] is None:
@@ -97,18 +97,23 @@ class MLRunModel(keras.Model):
                     kwargs["validation_steps"] = None
                 # Call the pre fit method:
                 (
-                    kwargs["callbacks"],
-                    kwargs["verbose"],
-                    kwargs["steps_per_epoch"],
-                    kwargs["validation_steps"],
+                    callbacks,
+                    verbose,
+                    steps_per_epoch,
+                    validation_steps,
                 ) = model._pre_fit(
-                    optimizer=model.optimizer,
                     callbacks=kwargs["callbacks"],
                     verbose=kwargs["verbose"],
                     steps_per_epoch=kwargs["steps_per_epoch"],
                     validation_steps=kwargs["validation_steps"],
                 )
-                method(*args, **kwargs)
+                # Assign parameters:
+                kwargs["callbacks"] = callbacks
+                kwargs["verbose"] = verbose
+                kwargs["steps_per_epoch"] = steps_per_epoch
+                kwargs["validation_steps"] = validation_steps
+                # Call the original fit method:
+                fit_method(*args, **kwargs)
 
             return wrapper
 
@@ -154,14 +159,14 @@ class MLRunModel(keras.Model):
         """
         dynamic_hyperparameters = {"learning_rate": ["optimizer", "lr"]}
         self._callbacks.append(
-            MLRunLoggingCallback(
+            TensorboardLoggingCallback(
                 context=context,
                 static_hyperparameters=static_hyperparameters,
                 dynamic_hyperparameters=dynamic_hyperparameters,
             )
         )
         self._callbacks.append(
-            TensorboardLoggingCallback(
+            MLRunLoggingCallback(
                 context=context,
                 static_hyperparameters=static_hyperparameters,
                 dynamic_hyperparameters=dynamic_hyperparameters,
@@ -282,11 +287,6 @@ class MLRunModel(keras.Model):
 
         # Call the pre fit method:
         (callbacks, verbose, steps_per_epoch, validation_steps,) = self._pre_fit(
-            optimizer=(
-                self.optimizer
-                if self._wrapped_model is None
-                else self._wrapped_model.optimizer
-            ),
             callbacks=callbacks,
             verbose=verbose,
             steps_per_epoch=steps_per_epoch,
@@ -299,7 +299,7 @@ class MLRunModel(keras.Model):
             y=y,
             batch_size=batch_size,
             epochs=epochs,
-            callbacks=callbacks + self._callbacks,
+            callbacks=callbacks,
             validation_split=validation_split,
             validation_data=validation_data,
             shuffle=shuffle,
@@ -343,15 +343,6 @@ class MLRunModel(keras.Model):
         """
         self._RANK_0_ONLY_CALLBACKS.append(callback_name)
 
-    # List of all the methods that should not be overridden when wrapping a model:
-    _MLRUN_MODEL_METHODS = [
-        auto_log.__name__,
-        compile.__name__,
-        fit.__name__,
-        call.__name__,
-        get_config.__name__,
-    ]  # type: List[str]
-
     # List of all the callbacks that should only be applied on rank 0 when using horovod:
     _RANK_0_ONLY_CALLBACKS = [
         MLRunLoggingCallback.__name__,
@@ -361,7 +352,6 @@ class MLRunModel(keras.Model):
         ProgbarLogger.__name__,
         CSVLogger.__name__,
         BaseLogger.__name__,
-        "__class__",
     ]  # type: List[str]
 
     def _pre_compile(self, optimizer: Optimizer) -> Tuple[Optimizer, Union[bool, None]]:
@@ -417,7 +407,6 @@ class MLRunModel(keras.Model):
 
     def _pre_fit(
         self,
-        optimizer: Optimizer,
         callbacks: List[Callback],
         verbose: int,
         steps_per_epoch: Union[int, None],
@@ -426,7 +415,6 @@ class MLRunModel(keras.Model):
         """
         Method to call before calling 'fit' to setup the run and inputs for using horovod.
 
-        :param optimizer:        Optimizer to get his initial learning rate for one of horovod's callbacks.
         :param callbacks:        Callbacks to use in the run. The callbacks will be split among the ranks so only
                                  certain callbacks (mainly logging and checkpoints) will be in rank 0.
         :param verbose:          Whether or not to print the progress of training. If '1' or '2' only rank 0 will be
@@ -444,8 +432,6 @@ class MLRunModel(keras.Model):
         """
         # Check if needed to run with horovod:
         if self._hvd is None:
-            # TODO: Remove this!
-            print("No horovod for you")
             return callbacks, verbose, steps_per_epoch, validation_steps
 
         # Setup the callbacks:
@@ -455,7 +441,7 @@ class MLRunModel(keras.Model):
             self._hvd.callbacks.BroadcastGlobalVariablesCallback(0),
             metric_average_callback,
             self._hvd.callbacks.LearningRateWarmupCallback(
-                initial_lr=float(optimizer.lr)
+                initial_lr=float(self.optimizer.lr)
             ),
         ]
         if self._hvd.rank() != 0:
@@ -469,9 +455,6 @@ class MLRunModel(keras.Model):
         # Pick the verbose:
         if self._hvd.rank() != 0:
             verbose = 0
-
-        # TODO: Remove this!
-        print(self._hvd.rank())
 
         # Adjust the number of steps per epoch based on the number of GPUs (if given):
         if steps_per_epoch is not None:
