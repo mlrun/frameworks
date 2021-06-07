@@ -444,6 +444,8 @@ class MLRunModel(keras.Model):
         """
         # Check if needed to run with horovod:
         if self._hvd is None:
+            # TODO: Remove this!
+            print("No horovod for you")
             return callbacks, verbose, steps_per_epoch, validation_steps
 
         # Setup the callbacks:
@@ -467,6 +469,9 @@ class MLRunModel(keras.Model):
         # Pick the verbose:
         if self._hvd.rank() != 0:
             verbose = 0
+
+        # TODO: Remove this!
+        print(self._hvd.rank())
 
         # Adjust the number of steps per epoch based on the number of GPUs (if given):
         if steps_per_epoch is not None:
