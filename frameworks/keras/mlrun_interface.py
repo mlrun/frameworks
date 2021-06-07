@@ -1,3 +1,4 @@
+from abc import ABC
 from typing import Union, List, Dict, Tuple, Callable
 from types import MethodType, FunctionType
 import os
@@ -16,6 +17,7 @@ from tensorflow.keras.callbacks import (
 from tensorflow.keras.optimizers import Optimizer
 
 import mlrun
+from frameworks._common import MLRunInterface
 from frameworks.keras.callbacks import (
     MLRunLoggingCallback,
     TensorboardLoggingCallback,
@@ -23,14 +25,41 @@ from frameworks.keras.callbacks import (
 )
 
 
-class MLRunModel(keras.Model):
+class KerasMLRunInterface(MLRunInterface, keras.Model, ABC):
     """
     MLRun model is for enabling additional features supported by MLRun in keras. With MLRun model one can apply horovod
     and use auto logging with ease.
     """
 
-    @staticmethod
-    def wrap(model: keras.Model) -> keras.Model:
+    # Properties attributes to be inserted so the keras mlrun interface will be fully enabled:
+    _PROPERTIES = {
+        # Auto enabled callbacks list:
+        "_callbacks": [],
+        # Variable to hold the horovod module:
+        "_hvd": None,
+        # List of all the callbacks that should only be applied on rank 0 when using horovod:
+        "_RANK_0_ONLY_CALLBACKS": [
+            MLRunLoggingCallback.__name__,
+            TensorboardLoggingCallback.__name__,
+            ModelCheckpoint.__name__,
+            TensorBoard.__name__,
+            ProgbarLogger.__name__,
+            CSVLogger.__name__,
+            BaseLogger.__name__,
+        ]  # type: List[str]
+    }
+
+    # Methods attributes to be inserted so the keras mlrun interface will be fully enabled:
+    _METHODS = [
+        "auto_log",
+        "use_horovod",
+        "note_rank_0_callback",
+        "_pre_compile",
+        "_pre_fit",
+    ]  # type: List[str]
+
+    @classmethod
+    def add_interface(cls, model: keras.Model, *args, **kwargs):
         """
         Wrap the given model with MLRun model features, providing it with MLRun model attributes including its
         parameters and methods.
@@ -39,25 +68,7 @@ class MLRunModel(keras.Model):
 
         :return: The wrapped model.
         """
-        # Add the MLRun model properties:
-        setattr(model, "_callbacks", [])
-        setattr(model, "_hvd", None)
-        setattr(model, "_RANK_0_ONLY_CALLBACKS", MLRunModel._RANK_0_ONLY_CALLBACKS)
-
-        # Add the MLRun model methods:
-        for method_name in [
-            "auto_log",
-            "use_horovod",
-            "note_rank_0_callback",
-            "_pre_compile",
-            "_pre_fit",
-        ]:
-            if method_name not in model.__dir__():
-                setattr(
-                    model,
-                    method_name,
-                    MethodType(getattr(MLRunModel, method_name), model),
-                )
+        super(KerasMLRunInterface, cls).add_interface(model=model)
 
         # Wrap the compile method:
         def compile_wrapper(compile_method):
@@ -119,19 +130,6 @@ class MLRunModel(keras.Model):
 
         setattr(model, "fit", fit_wrapper(model.fit))
 
-        return model
-
-    def __init__(self, model_to_wrap: keras.Model = None, *args, **kwargs):
-        """
-        Initialize a MLRun model with the additional features of MLRun in keras.
-        """
-        super(MLRunModel, self).__init__(*args, **kwargs)
-
-        # Setup MLRun model attributes:
-        self._wrapped_model = model_to_wrap
-        self._callbacks = []
-        self._hvd = None
-
     def auto_log(
         self,
         context: mlrun.MLClientCtx,
@@ -157,6 +155,10 @@ class MLRunModel(keras.Model):
                                            "epochs": 7
                                        }
         """
+        # If horovod is being used, there is no need to add the logging callbacks to ranks other than 0:
+        if self._hvd is not None and self._hvd.rank() != 0:
+            return
+
         dynamic_hyperparameters = {"learning_rate": ["optimizer", "lr"]}
         self._callbacks.append(
             TensorboardLoggingCallback(
@@ -183,158 +185,6 @@ class MLRunModel(keras.Model):
         # Initialize horovod:
         self._hvd.init()
 
-    def compile(
-        self,
-        optimizer="rmsprop",
-        loss=None,
-        metrics=None,
-        loss_weights=None,
-        weighted_metrics=None,
-        run_eagerly=None,
-        steps_per_execution=None,
-        **kwargs
-    ):
-        """
-        Compile the model or, if given, the wrapped model with the given parameters (see
-        tensorflow.keras.Model.compile() for better reference of the compile method). Notice, for compiling the model to
-        run with horovod the optimizer given must be an initialized instance of 'tensorflow.keras.optimizers.Optimizer'
-        and not a string.
-
-        :param optimizer:           An optimizer instance. Note that when using horovod, unlike in
-                                    'tf.keras.Model.compile()', the optimizer must be an initialized instance of an
-                                    optimizer and it cannot be passed as a string.
-        :param loss:                Loss function as in 'tensorflow.keras.Model.compile()'.
-        :param metrics:             List of metric functions as in 'tf.keras.Model.compile()'.
-        :param loss_weights:        A list of scalars to apply on the outputs or a dictionary of output names to scalars
-                                    as in 'tf.keras.Model.compile()'.
-        :param weighted_metrics:    List of metric functions as in 'tf.keras.Model.compile()'.
-        :param run_eagerly:         Whether or not to wrap the model in 'tf.function' as in 'tf.keras.Model.compile()'.
-        :param steps_per_execution: Number of steps to run on each 'tf.function' call as in 'tf.keras.Model.compile()'.
-        """
-        # Call the pre compile method:
-        optimizer, experimental_run_tf_function = self._pre_compile(optimizer=optimizer)
-        if experimental_run_tf_function is not None:
-            kwargs["experimental_run_tf_function"] = experimental_run_tf_function
-
-        # Call the compile method of the super class:
-        super(MLRunModel, self).compile(
-            optimizer=optimizer,
-            loss=loss,
-            metrics=metrics,
-            loss_weights=loss_weights,
-            weighted_metrics=weighted_metrics,
-            run_eagerly=run_eagerly,
-            steps_per_execution=steps_per_execution,
-            **kwargs
-        )
-
-    def fit(
-        self,
-        x=None,
-        y=None,
-        batch_size=None,
-        epochs=1,
-        verbose=1,
-        callbacks=None,
-        validation_split=0.0,
-        validation_data=None,
-        shuffle=True,
-        class_weight=None,
-        sample_weight=None,
-        initial_epoch=0,
-        steps_per_epoch=None,
-        validation_steps=None,
-        validation_batch_size=None,
-        validation_freq=1,
-        max_queue_size=10,
-        workers=1,
-        use_multiprocessing=False,
-    ):
-        """
-        Trains the model or wrapped model if given (see tensorflow.keras.Model.fit() for better reference of the fit
-        method).
-
-        :param x:                     The input data.
-        :param y:                     The target data.
-        :param batch_size:            The batch size.
-        :param epochs:                Amount of epochs for training.
-        :param verbose:               Output for training process.
-        :param callbacks:             List of callbacks to apply during training.
-        :param validation_split:      Float number that indicates to use a fraction of the training data as validation
-                                      data.
-        :param validation_data:       The validation data.
-        :param shuffle:               Boolean for whether to shuffle the training data or not.
-        :param class_weight:          Dictionary for mapping class indices to a weight value for weighting the loss
-                                      function during training.
-        :param sample_weight:         Numpy array of weights used for weighting the loss function during training.
-        :param initial_epoch:         The epoch to start training.
-        :param steps_per_epoch:       Amount of training steps to perform each epoch.
-        :param validation_steps:      Amount of validation steps to perform each epoch.
-        :param validation_batch_size: The validation data batch size.
-        :param validation_freq:       Per how many peochs to run validation. Can be sent as a container.
-        :param max_queue_size:        The maximum size for the generator queue.
-        :param workers:               The maximum number of workers to use when using process-based threading.
-        :param use_multiprocessing:   Whether or not to use process-based threading.
-
-        :return: History object.
-        """
-        # Setup the callbacks list:
-        if callbacks is None:
-            callbacks = []
-
-        # Add auto log callbacks if they were added:
-        callbacks = callbacks + self._callbacks
-
-        # Call the pre fit method:
-        (callbacks, verbose, steps_per_epoch, validation_steps,) = self._pre_fit(
-            callbacks=callbacks,
-            verbose=verbose,
-            steps_per_epoch=steps_per_epoch,
-            validation_steps=validation_steps,
-        )
-
-        # Call the fit method of the super class:
-        super(MLRunModel, self).fit(
-            x=x,
-            y=y,
-            batch_size=batch_size,
-            epochs=epochs,
-            callbacks=callbacks,
-            validation_split=validation_split,
-            validation_data=validation_data,
-            shuffle=shuffle,
-            class_weight=class_weight,
-            sample_weight=sample_weight,
-            initial_epoch=initial_epoch,
-            steps_per_epoch=steps_per_epoch,
-            validation_steps=validation_steps,
-            validation_batch_size=validation_batch_size,
-            validation_freq=validation_freq,
-            max_queue_size=max_queue_size,
-            workers=workers,
-            use_multiprocessing=use_multiprocessing,
-        )
-
-    def call(self, inputs, training=None, mask=None):
-        """
-        Performs the logic of applying the model or, if given, the wrapped model to the input tensors. For further
-        information, see the docs of keras.Model.
-
-        :param inputs:   The input tensors.
-        :param training: Whether the call is in inference mode or training mode.
-        :param mask:     Boolean tensor encoding masked timesteps in the input, used in RNN layers.
-        """
-        super(MLRunModel, self).call(inputs=inputs, training=training, mask=mask)
-
-    def get_config(self) -> dict:
-        """
-        Returns a dictionary containing the configuration used to initialize this model or, if given, the wrapped model.
-        For further information, see the docs of keras.Model.
-
-        :return: The configuration dictionary of this model or the wrapped model if provided.
-        """
-        return super(MLRunModel, self).get_config()
-
     def note_rank_0_callback(self, callback_name: str):
         """
         Note an additional custom callback to be applied only on rank 0 when using horovod.
@@ -342,17 +192,6 @@ class MLRunModel(keras.Model):
         :param callback_name: The name of the callback.
         """
         self._RANK_0_ONLY_CALLBACKS.append(callback_name)
-
-    # List of all the callbacks that should only be applied on rank 0 when using horovod:
-    _RANK_0_ONLY_CALLBACKS = [
-        MLRunLoggingCallback.__name__,
-        TensorboardLoggingCallback.__name__,
-        ModelCheckpoint.__name__,
-        TensorBoard.__name__,
-        ProgbarLogger.__name__,
-        CSVLogger.__name__,
-        BaseLogger.__name__,
-    ]  # type: List[str]
 
     def _pre_compile(self, optimizer: Optimizer) -> Tuple[Optimizer, Union[bool, None]]:
         """

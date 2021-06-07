@@ -77,7 +77,17 @@ class _PyTorchTensorboardLogger(TensorboardLogger):
             run_name=run_name,
         )
 
-        # Initialize the tensorboard writer:
+        # Setup the tensorboard writer property:
+        self._summary_writer = None
+
+    def open(self):
+        """
+        Create the output path and initialize the tensorboard file writer.
+        """
+        # Create the output path:
+        self._create_output_path()
+
+        # Use the output path to initialize the tensorboard writer:
         self._summary_writer = _MLRunSummaryWriter(log_dir=self._output_path)
 
     def log_context_summary_to_tensorboard(self):
@@ -397,6 +407,9 @@ class TensorboardLoggingCallback(LoggingCallback):
             metric_functions=metric_functions,
             scheduler=scheduler,
         )
+
+        # Start the tensorboard logger:
+        self._logger.open()
 
         # Log the summary meta data of the run:
         self._logger.log_context_summary_to_tensorboard()

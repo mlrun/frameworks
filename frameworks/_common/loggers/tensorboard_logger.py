@@ -88,14 +88,14 @@ class TensorboardLogger(Logger, Generic[Weight]):
         """
         super(TensorboardLogger, self).__init__()
 
-        # Store the context and statistics functions:
-        self._context = context
+        # Store the given parameters:
         self._statistics_functions = statistics_functions
+        self._context = context
+        self._tensorboard_directory = tensorboard_directory
+        self._run_name = run_name
 
-        # Create the output path to work with:
-        self._output_path, self._run_name = self._create_output_path(
-            tensorboard_directory=tensorboard_directory, run_name=run_name
-        )
+        # Setup the output path:
+        self._output_path = None
 
         # Setup the weights dictionaries - a dictionary of all required weight parameters:
         # [Weight: str] -> [value: WeightType]
@@ -225,63 +225,50 @@ class TensorboardLogger(Logger, Generic[Weight]):
         """
         pass
 
-    def _create_output_path(
-        self, tensorboard_directory: str, run_name: str
-    ) -> Tuple[str, str]:
+    def _create_output_path(self):
         """
         Create the output path, indexing the given run name as needed.
-
-        :param tensorboard_directory: The output directory for the event files to be logged to. In case a context was
-                                      given this value can be 'None' so it will save to the user's default directory.
-        :param run_name:              The run name to be indexed if needed. If a context was given, the run name will
-                                      include the context's uid.
-
-        :return: A tuple of strings:
-                 [0] = The created output path.
-                 [1] = The edited run name.
         """
         # If a run name was not given, take the current timestamp as the run name in the format 'YYYY-mm-dd_HH:MM:SS':
-        if run_name is None:
-            run_name = (
+        if self._run_name is None:
+            self._run_name = (
                 str(datetime.now()).split(".")[0].replace(" ", "_")
                 if (self._context is None or self._context.name == "")
                 else "{}-{}".format(self._context.name, self._context.uid)
             )
 
         # Check if a context is available:
-        if tensorboard_directory is not None:
+        if self._tensorboard_directory is not None:
             # Create the main tensorboard directory:
-            os.makedirs(tensorboard_directory, exist_ok=True)
+            os.makedirs(self._tensorboard_directory, exist_ok=True)
             # Index the run name according to the tensorboard directory content:
             index = 1
-            for run_directory in sorted(os.listdir(tensorboard_directory)):
+            for run_directory in sorted(os.listdir(self._tensorboard_directory)):
                 existing_run = run_directory.rsplit(
                     "_", 1
                 )  # type: List[str] # [0] = name, [1] = index
-                if run_name == existing_run[0]:
+                if self._run_name == existing_run[0]:
                     index += 1
             # Check if need to index the name:
             if index > 1:
-                run_name = "{}_{}".format(run_name, index)
+                self._run_name = "{}_{}".format(self._run_name, index)
         else:
             # Try to get the 'tensorboard_dir' parameter:
-            tensorboard_directory = self._context.get_param("tensorboard_dir")
-            if tensorboard_directory is None:
+            self._tensorboard_directory = self._context.get_param("tensorboard_dir")
+            if self._tensorboard_directory is None:
                 # The parameter was not given, set the directory to the default value:
-                tensorboard_directory = self._DEFAULT_TENSORBOARD_DIRECTORY.replace(
+                self._tensorboard_directory = self._DEFAULT_TENSORBOARD_DIRECTORY.replace(
                     "{{project}}", self._context.project
                 )
                 try:
-                    os.makedirs(tensorboard_directory, exist_ok=True)
+                    os.makedirs(self._tensorboard_directory, exist_ok=True)
                 except OSError:
                     # The tensorboard default directory is not writable, change to the artifact path:
-                    tensorboard_directory = self._context.artifact_path
+                    self._tensorboard_directory = self._context.artifact_path
 
         # Create the output path:
-        output_path = os.path.join(tensorboard_directory, run_name)
-        os.makedirs(output_path, exist_ok=True)
-
-        return output_path, run_name
+        self._output_path = os.path.join(self._tensorboard_directory, self._run_name)
+        os.makedirs(self._output_path, exist_ok=True)
 
     def _parse_context_summary(self) -> str:
         """

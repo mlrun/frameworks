@@ -69,7 +69,7 @@ class MLRunLogger(Logger):
         # Create child context to hold the current epoch's results:
         child_context = self._context.get_child_context()
 
-        # Set the current iteration and artifact path according to the epoch number:
+        # Set the current iteration according to the epoch number:
         child_context._iteration = epoch + 1
 
         # Log the collected hyperparameters and values as results to the epoch's child context:

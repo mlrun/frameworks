@@ -50,7 +50,17 @@ class _KerasTensorboardLogger(TensorboardLogger):
             run_name=run_name,
         )
 
-        # Initialize the tensorboard writer:
+        # Setup the tensorboard writer property:
+        self._file_writer = None
+
+    def open(self):
+        """
+        Create the output path and initialize the tensorboard file writer.
+        """
+        # Create the output path:
+        self._create_output_path()
+
+        # Use the output path to initialize the tensorboard file writer:
         self._file_writer = tf.summary.create_file_writer(self._output_path)
         self._file_writer.set_as_default()
 
@@ -378,6 +388,9 @@ class TensorboardLoggingCallback(LoggingCallback):
         # The callback is on a 'fit' method - training:
         self._is_training = True
 
+        # Start the tensorboard logger:
+        self._logger.open()
+
         # Setup the run, logging relevant information and tracking weights:
         self._setup_run()
 
@@ -422,6 +435,8 @@ class TensorboardLoggingCallback(LoggingCallback):
         """
         # If this callback is part of evaluation and not training, need to check if the run was setup:
         if self._call_setup_run:
+            # Start the tensorboard logger:
+            self._logger.open()
             # Setup the run, logging relevant information and tracking weights:
             self._setup_run()
             # Log the initial weights (epoch 0):
