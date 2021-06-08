@@ -1,8 +1,7 @@
-from typing import Union, Dict, List, Tuple, Callable, TypeVar, Generic
+from typing import Union, Dict, List, Tuple, Any, Callable, TypeVar, Generic
 from abc import abstractmethod
 import os
 from datetime import datetime
-import json
 
 from tensorflow import Variable as TensorflowWeight
 from torch.nn import Parameter as PyTorchWeight
@@ -11,7 +10,7 @@ import mlrun
 from mlrun.config import config
 from mlrun import MLClientCtx
 
-from frameworks._common.loggers.logger import Logger
+from frameworks._common.loggers.logger import Logger, TrackableType
 
 
 # Define a type variable for the different weight holder objects of the supported frameworks:
@@ -42,15 +41,6 @@ class TensorboardLogger(Logger, Generic[Weight]):
     _DEFAULT_TENSORBOARD_DIRECTORY = os.path.join(
         os.sep, "User", ".tensorboard", "{{project}}"
     )
-
-    # The template for the context summary to log into tensorboard as markdown text:
-    _CONTEXT_SUMMARY_TEMPLATE = """
-#### Job URL: 
-{}
-
-#### Job JSON Summary:
-{}
-"""
 
     class _Sections:
         """
@@ -156,9 +146,23 @@ class TensorboardLogger(Logger, Generic[Weight]):
                 ].append(float(statistic_function(weight_parameter)))
 
     @abstractmethod
-    def log_context_summary_to_tensorboard(self):
+    def log_run_start_text_to_tensorboard(self):
         """
-        Log a summary of this training / validation run to tensorboard.
+        Log the initial information summary of this training / validation run to tensorboard.
+        """
+        pass
+
+    @abstractmethod
+    def log_epoch_text_to_tensorboard(self):
+        """
+        Log the last epoch summary of this training / validation run to tensorboard.
+        """
+        pass
+
+    @abstractmethod
+    def log_run_end_text_to_tensorboard(self):
+        """
+        Log the final information summary of this training / validation run to tensorboard.
         """
         pass
 
@@ -257,8 +261,10 @@ class TensorboardLogger(Logger, Generic[Weight]):
             self._tensorboard_directory = self._context.get_param("tensorboard_dir")
             if self._tensorboard_directory is None:
                 # The parameter was not given, set the directory to the default value:
-                self._tensorboard_directory = self._DEFAULT_TENSORBOARD_DIRECTORY.replace(
-                    "{{project}}", self._context.project
+                self._tensorboard_directory = (
+                    self._DEFAULT_TENSORBOARD_DIRECTORY.replace(
+                        "{{project}}", self._context.project
+                    )
                 )
                 try:
                     os.makedirs(self._tensorboard_directory, exist_ok=True)
@@ -270,43 +276,147 @@ class TensorboardLogger(Logger, Generic[Weight]):
         self._output_path = os.path.join(self._tensorboard_directory, self._run_name)
         os.makedirs(self._output_path, exist_ok=True)
 
-    def _parse_context_summary(self) -> str:
+    def _generate_run_start_text(self) -> str:
         """
-        Parse and return the run summary - a hyperlink for the job in MLRun and the context metadata as strings to log
-        into tensorboard as markdown text.
+        Generate the run start summary text. The callback configuration will be written along side the context
+        information - a hyperlink for the job in MLRun and the context metadata as strings.
 
-        :return: The job hyperlink to MLRun and the context metadata json as a markdown string.
+        :return: The generated text.
         """
+        # Write the main header:
+        text = "###Run Properties"
+
+        # Add the callbacks properties:
+        text += "\n####Callback configuration:"
+        for property_name, property_value in zip(
+            ["Output directory", "Run name", "Tracked hyperparameters"],
+            [
+                self._output_path,
+                self._run_name,
+                list(self._static_hyperparameters.keys())
+                + list(self._dynamic_hyperparameters.keys()),
+            ],
+        ):
+            text += "\n  * **{}**: {}".format(property_name, property_value)
+
+        # Add the context state:
         if self._context is not None:
-            # # Parse the hyperlink:
-            # job_url = '<a href="{}/{}/{}/jobs/monitor/{}/overview" target="_blank">uid={}</a>'.format(
-            #     config.resolve_ui_url(),
-            #     config.ui.projects_prefix,
-            #     self._context.project,
-            #     self._context.uid,
-            #     self._context.uid
-            # )
-            #
-            # # Parse the context metadata as a json string:
-            # json_metadata = json.dumps(self._context.to_dict(), indent=4)
-            # job_summary = "".join("\t\t" + line for line in json_metadata.splitlines(True))
-            #
-            # return self._CONTEXT_SUMMARY_TEMPLATE.format(job_url, job_summary)
-            job_url = '<a href="{}/{}/{}/jobs/monitor/{}/overview" target="_blank">{}</a>'.format(
+            text += "\n####Context initial state: ({})".format(
+                self._generate_context_link(context=self._context)
+            )
+            for property_name, property_value in self._extract_properties_from_context(
+                context=self._context
+            ).items():
+                text += "\n  * **{}**: {}".format(property_name, property_value)
+
+        return text
+
+    def _generate_epoch_text(self) -> str:
+        """
+        Generate the last epoch summary text. If MLRun context is available, the results and artifacts will be
+        displayed. Otherwise, the epochs results will be simply written.
+
+        :return: The generated text.
+        """
+        text = "####Epoch {} summary:".format(self._epochs)
+        if self._context._children[-1] is not None:
+            for property_name, property_value in self._extract_properties_from_context(
+                context=self._context
+            ).items():
+                if property_name not in [
+                    "project",
+                    "uid",
+                    "state",
+                    "name",
+                    "labels",
+                    "inputs",
+                    "parameters",
+                ]:
+                    text += "\n  * **{}**: {}".format(property_name, property_value)
+        else:
+            for property_name, property_value in self._extract_epoch_results().items():
+                text += "\n  * **{}**: {}".format(property_name, property_value)
+        return text
+
+    def _generate_run_end_text(self) -> str:
+        """
+        Generate the run end summary text, writing the final collected results and parameters values. If MLRun context
+        is available the updated properties of the context will be written as well.
+
+        :return: The generated text.
+        """
+        # Write the run summary:
+        text = "\n####Run final summary:"
+        for property_name, property_value in self._extract_epoch_results().items():
+            text += "\n  * **{}**: {}".format(property_name, property_value)
+
+        # Add the context final state:
+        if self._context is not None:
+            text = "####Context final state:"
+            for property_name, property_value in self._extract_properties_from_context(
+                context=self._context
+            ).items():
+                text += "\n  * **{}**: {}".format(property_name, property_value)
+        return text
+
+    def _extract_epoch_results(
+        self, epoch: int = -1
+    ) -> Dict[str, Dict[str, TrackableType]]:
+        """
+        Extract the given epoch results from all the collected values and results.
+
+        :param epoch: The epoch to get the results. Defaulted to the last epoch (-1).
+
+        :return: A dictionary where the keys are the collected value and the values are the results.
+        """
+        return {
+            "Static hyperparameters": self._static_hyperparameters,
+            "Dynamic hyperparameters": {
+                name: value[epoch]
+                for name, value in self._dynamic_hyperparameters.items()
+            },
+            "Training results": {
+                name: value[epoch] for name, value in self._training_summaries.items()
+            },
+            "Validation results": {
+                name: value[epoch] for name, value in self._validation_summaries.items()
+            },
+        }
+
+    @staticmethod
+    def _generate_context_link(
+        context: MLClientCtx, link_text: str = "view in MLRun"
+    ) -> str:
+        """
+        Generate a hyperlink from the provided context to view in the MLRun web.
+
+        :param context:   The context to generate his link.
+        :param link_text: Text to present instead of the link.
+
+        :return: The generated link.
+        """
+        return (
+            '<a href="{}/{}/{}/jobs/monitor/{}/overview" target="_blank">{}</a>'.format(
                 config.resolve_ui_url(),
                 config.ui.projects_prefix,
-                self._context.project,
-                self._context.uid,
-                self._context.uid,
+                context.project,
+                context.uid,
+                link_text,
             )
-            run = mlrun.RunObject.from_dict(self._context.to_dict())
-            runs = mlrun.lists.RunList([run.to_dict()])
-            html = "<h2>Run Results for: {}</h2><br>".format(job_url)
-            for k, v in list(zip(*runs.to_rows())):
-                html += f'<tr><th style="text-align:left">{k}:</th><td>{v}</td></tr>'
-            html = f"<table>{html}</table>"
-            return html
-
-        return "Output directory: {}\nRun name: {}".format(
-            self._output_path, self._run_name
         )
+
+    @staticmethod
+    def _extract_properties_from_context(context: MLClientCtx) -> Dict[str, Any]:
+        """
+        Extract the properties of the run this context belongs to.
+
+        :param context: The context to get his properties.
+
+        :return: The properties as a dictionary where each key is the property name.
+        """
+        run = mlrun.RunObject.from_dict(context.to_dict())
+        runs = mlrun.lists.RunList([run.to_dict()])
+        info = {}
+        for property_name, property_value in list(zip(*runs.to_rows())):
+            info[property_name] = property_value
+        return info

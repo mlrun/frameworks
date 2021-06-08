@@ -159,16 +159,22 @@ class KerasMLRunInterface(MLRunInterface, keras.Model, ABC):
         if self._hvd is not None and self._hvd.rank() != 0:
             return
 
+        # Try to get common default hyperparameters to track:
+        # TODO: Get common static hyperparameters like batch size, epochs, etc...
         dynamic_hyperparameters = {"learning_rate": ["optimizer", "lr"]}
+
+        # Add the MLRun logging callback:
         self._callbacks.append(
-            TensorboardLoggingCallback(
+            MLRunLoggingCallback(
                 context=context,
                 static_hyperparameters=static_hyperparameters,
                 dynamic_hyperparameters=dynamic_hyperparameters,
             )
         )
+
+        # Add the Tensorboard logging callback:
         self._callbacks.append(
-            MLRunLoggingCallback(
+            TensorboardLoggingCallback(
                 context=context,
                 static_hyperparameters=static_hyperparameters,
                 dynamic_hyperparameters=dynamic_hyperparameters,

@@ -90,14 +90,38 @@ class _PyTorchTensorboardLogger(TensorboardLogger):
         # Use the output path to initialize the tensorboard writer:
         self._summary_writer = _MLRunSummaryWriter(log_dir=self._output_path)
 
-    def log_context_summary_to_tensorboard(self):
+    def log_run_start_text_to_tensorboard(self):
         """
-        Log a summary of this training / validation run to tensorboard.
+        Log the initial information summary of this training / validation run to tensorboard.
         """
         self._summary_writer.add_text(
-            tag="Summary",
-            text_string=self._parse_context_summary(),
+            tag="MLRun",
+            text_string=self._generate_run_start_text(),
+            global_step=0,
+        )
+
+    def log_epoch_text_to_tensorboard(self):
+        """
+        Log the last epoch summary of this training run to tensorboard.
+        """
+        self._summary_writer.add_text(
+            tag="MLRun",
+            text_string=self._generate_epoch_text(),
             global_step=self._training_iterations,
+        )
+
+    def log_run_end_text_to_tensorboard(self):
+        """
+        Log the final information summary of this training / validation run to tensorboard.
+        """
+        self._summary_writer.add_text(
+            tag="MLRun",
+            text_string=self._generate_run_end_text(),
+            global_step=(
+                self._validation_iterations
+                if self._training_iterations == 0
+                else self._training_iterations
+            ),
         )
 
     def log_parameters_table_to_tensorboard(self):
@@ -411,9 +435,6 @@ class TensorboardLoggingCallback(LoggingCallback):
         # Start the tensorboard logger:
         self._logger.open()
 
-        # Log the summary meta data of the run:
-        self._logger.log_context_summary_to_tensorboard()
-
         # Collect the weights for drawing histograms according to the stored configuration:
         if self._tracked_weights is False:
             return
@@ -443,6 +464,9 @@ class TensorboardLoggingCallback(LoggingCallback):
         # Setup all the results and hyperparameters dictionaries:
         super(TensorboardLoggingCallback, self).on_run_begin()
 
+        # Log the initial summary of the run:
+        self._logger.log_run_start_text_to_tensorboard()
+
         # Log the model:
         self._logger.log_model_to_tensorboard(
             model=self._objects[self._ObjectKeys.MODEL],
@@ -465,11 +489,10 @@ class TensorboardLoggingCallback(LoggingCallback):
         """
         Before the trainer / evaluator run ends, this method will be called to log the context summary.
         """
-        super(TensorboardLoggingCallback, self).on_run_end()
+        # Log the final summary of the run:
+        self._logger.log_run_end_text_to_tensorboard()
 
-        # TODO: Need to resolve the table getting messy with all the artifacts
-        # # Log the summary meta data of the run:
-        # self._logger.log_context_summary_to_tensorboard()
+        super(TensorboardLoggingCallback, self).on_run_end()
 
     def on_epoch_end(self, epoch: int):
         """
@@ -480,6 +503,9 @@ class TensorboardLoggingCallback(LoggingCallback):
         :param epoch: The epoch that has just ended.
         """
         super(TensorboardLoggingCallback, self).on_epoch_end(epoch=epoch)
+
+        # Add this epoch text summary:
+        self._logger.log_epoch_text_to_tensorboard()
 
         # Add this epoch loss and metrics averages to their graphs:
         self._logger.log_summaries_to_tensorboard()
