@@ -2,6 +2,7 @@ from typing import Union, Dict, List, Tuple, Any, Callable, TypeVar, Generic
 from abc import abstractmethod
 import os
 from datetime import datetime
+import yaml
 
 from tensorflow import Variable as TensorflowWeight
 from torch.nn import Parameter as PyTorchWeight
@@ -297,7 +298,10 @@ class TensorboardLogger(Logger, Generic[Weight]):
                 + list(self._dynamic_hyperparameters.keys()),
             ],
         ):
-            text += "\n  * **{}**: {}".format(property_name, property_value)
+            text += "\n  * **{}**: {}".format(
+                property_name.capitalize(),
+                self._markdown_print(value=property_value, tabs=2),
+            )
 
         # Add the context state:
         if self._context is not None:
@@ -307,7 +311,10 @@ class TensorboardLogger(Logger, Generic[Weight]):
             for property_name, property_value in self._extract_properties_from_context(
                 context=self._context
             ).items():
-                text += "\n  * **{}**: {}".format(property_name, property_value)
+                text += "\n  * **{}**: {}".format(
+                    property_name.capitalize(),
+                    self._markdown_print(value=property_value, tabs=2),
+                )
 
         return text
 
@@ -332,10 +339,16 @@ class TensorboardLogger(Logger, Generic[Weight]):
                     "inputs",
                     "parameters",
                 ]:
-                    text += "\n  * **{}**: {}".format(property_name, property_value)
+                    text += "\n  * **{}**: {}".format(
+                        property_name.capitalize(),
+                        self._markdown_print(value=property_value, tabs=2),
+                    )
         else:
             for property_name, property_value in self._extract_epoch_results().items():
-                text += "\n  * **{}**: {}".format(property_name, property_value)
+                text += "\n  * **{}**: {}".format(
+                    property_name.capitalize(),
+                    self._markdown_print(value=property_value, tabs=2),
+                )
         return text
 
     def _generate_run_end_text(self) -> str:
@@ -346,17 +359,25 @@ class TensorboardLogger(Logger, Generic[Weight]):
         :return: The generated text.
         """
         # Write the run summary:
-        text = "\n####Run final summary:"
+        text = "\n####Run final summary - epoch {}:".format(self._epochs)
         for property_name, property_value in self._extract_epoch_results().items():
-            text += "\n  * **{}**: {}".format(property_name, property_value)
+            text += "\n  * **{}**: {}".format(
+                property_name.capitalize(),
+                self._markdown_print(value=property_value, tabs=2),
+            )
 
         # Add the context final state:
         if self._context is not None:
-            text = "####Context final state:"
+            text += "\n####Context final state: ({})".format(
+                self._generate_context_link(context=self._context)
+            )
             for property_name, property_value in self._extract_properties_from_context(
                 context=self._context
             ).items():
-                text += "\n  * **{}**: {}".format(property_name, property_value)
+                text += "\n  * **{}**: {}".format(
+                    property_name.capitalize(),
+                    self._markdown_print(value=property_value, tabs=2),
+                )
         return text
 
     def _extract_epoch_results(
@@ -420,3 +441,29 @@ class TensorboardLogger(Logger, Generic[Weight]):
         for property_name, property_value in list(zip(*runs.to_rows())):
             info[property_name] = property_value
         return info
+
+    @staticmethod
+    def _markdown_print(value: Any, tabs: int = 0):
+        """
+        Convert the given value into a markdown styled string to print in tensorboard. List and dictionaries will both
+        printed as yaml with minor differences.
+
+        :param value: The value to print.
+        :param tabs:  Indent to add at the beginning of every line.
+
+        :return: The markdown styled string.
+        """
+        if isinstance(value, list):
+            if len(value) == 0:
+                return ""
+            text = "\n" + yaml.dump(value)
+            text = "  \n".join(["  " * tabs + line for line in text.splitlines()])
+            return text
+        if isinstance(value, dict):
+            if len(value) == 0:
+                return ""
+            text = yaml.dump(value)
+            text = "  \n".join(["  " * tabs + "- " + line for line in text.splitlines()])
+            text = "  \n" + text
+            return text
+        return str(value)
