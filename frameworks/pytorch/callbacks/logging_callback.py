@@ -49,6 +49,7 @@ class LoggingCallback(Callback):
             str, Union[TrackableType, Tuple[str, List[Union[str, int]]]]
         ] = None,
         per_iteration_logging: int = 1,
+        auto_log: bool = False,
     ):
         """
         Initialize a logging callback with the given hyperparameters and logging configurations.
@@ -77,19 +78,26 @@ class LoggingCallback(Callback):
                                         }
         :param per_iteration_logging:   Per how many iterations (batches) the callback should log the tracked values.
                                         Defaulted to 1 (meaning every iteration will be logged).
+        :param auto_log:                Whether or not to enable auto logging, trying to track common static and dynamic
+                                        hyperparameters.
         """
         super(LoggingCallback, self).__init__()
 
         # Store the configurations:
         self._per_iteration_logging = per_iteration_logging
-        self._dynamic_hyperparameters_keys = dynamic_hyperparameters
-        self._static_hyperparameters_keys = static_hyperparameters
+        self._dynamic_hyperparameters_keys = (
+            dynamic_hyperparameters if dynamic_hyperparameters is not None else {}
+        )
+        self._static_hyperparameters_keys = (
+            static_hyperparameters if static_hyperparameters is not None else {}
+        )
 
         # Initialize the logger:
         self._logger = Logger()
 
-        # Setup the logger flag:
+        # Setup the logger flags:
         self._log_iteration = False
+        self._auto_log = auto_log
 
     def get_training_results(self) -> Dict[str, List[List[float]]]:
         """
@@ -190,29 +198,25 @@ class LoggingCallback(Callback):
             self._logger.log_metric(metric_name=metric_name)
 
         # Setup the hyperparameters dictionaries:
+        if self._auto_log:
+            self._add_auto_hyperparameters()
         # # Static hyperparameters:
-        if self._static_hyperparameters_keys:
-            for name, value in self._static_hyperparameters_keys.items():
-                if isinstance(value, Tuple):
-                    # Its a parameter that needed to be extracted via key chain.
-                    self._logger.log_static_hyperparameter(
-                        parameter_name=name,
-                        value=self._get_hyperparameter(
-                            source=value[0], key_chain=value[1]
-                        ),
-                    )
-                else:
-                    # Its a custom hyperparameter.
-                    self._logger.log_static_hyperparameter(
-                        parameter_name=name, value=value
-                    )
-        # # Dynamic hyperparameters:
-        if self._dynamic_hyperparameters_keys:
-            for name, (source, key_chain) in self._dynamic_hyperparameters_keys.items():
-                self._logger.log_dynamic_hyperparameter(
+        for name, value in self._static_hyperparameters_keys.items():
+            if isinstance(value, Tuple):
+                # Its a parameter that needed to be extracted via key chain.
+                self._logger.log_static_hyperparameter(
                     parameter_name=name,
-                    value=self._get_hyperparameter(source=source, key_chain=key_chain),
+                    value=self._get_hyperparameter(source=value[0], key_chain=value[1]),
                 )
+            else:
+                # Its a custom hyperparameter.
+                self._logger.log_static_hyperparameter(parameter_name=name, value=value)
+        # # Dynamic hyperparameters:
+        for name, (source, key_chain) in self._dynamic_hyperparameters_keys.items():
+            self._logger.log_dynamic_hyperparameter(
+                parameter_name=name,
+                value=self._get_hyperparameter(source=source, key_chain=key_chain),
+            )
 
     def on_epoch_begin(self, epoch: int):
         """
@@ -409,6 +413,39 @@ class LoggingCallback(Callback):
                 result=float(metric_value),
             )
 
+    def _add_auto_hyperparameters(self):
+        """
+        Add auto log's hyperparameters if they are accessible. The automatic hyperparameters being added are:
+        batch size, learning rate.
+        """
+        # Add batch size:
+        bath_size_key = "Batch Size"
+        if bath_size_key not in self._static_hyperparameters_keys:
+            if self._objects[self._ObjectKeys.TRAINING_SET] is not None and hasattr(
+                self._objects[self._ObjectKeys.TRAINING_SET], "batch_size"
+            ):
+                self._static_hyperparameters_keys[bath_size_key] = getattr(
+                    self._objects[self._ObjectKeys.TRAINING_SET], "batch_size"
+                )
+            elif self._objects[self._ObjectKeys.VALIDATION_SET] is not None and hasattr(
+                self._objects[self._ObjectKeys.VALIDATION_SET], "batch_size"
+            ):
+                self._static_hyperparameters_keys[bath_size_key] = getattr(
+                    self._objects[self._ObjectKeys.VALIDATION_SET], "batch_size"
+                )
+
+        # Add learning rate:
+        learning_rate_key = "Learning Rate"
+        learning_rate_key_chain = (HyperparametersKeys.OPTIMIZER, ["param_groups", 0, "lr"])
+        if learning_rate_key not in self._dynamic_hyperparameters_keys:
+            if self._objects[self._ObjectKeys.OPTIMIZER] is not None:
+                try:
+                    self._get_hyperparameter(source=learning_rate_key_chain[0],
+                                             key_chain=learning_rate_key_chain[1])
+                    self._dynamic_hyperparameters_keys[learning_rate_key] = learning_rate_key_chain
+                except (TypeError, KeyError, IndexError, ValueError):
+                    pass
+
     def _on_batch_begin(self, batch: int):
         """
         Method to run on every batch (training and validation).
@@ -461,7 +498,7 @@ class LoggingCallback(Callback):
                         value = value[key]
                     else:
                         value = getattr(value, key)
-                except KeyError or IndexError or AttributeError as KeyChainError:
+                except (KeyError, IndexError, AttributeError) as KeyChainError:
                     raise KeyChainError(
                         "Error during getting a hyperparameter value from the {} object. "
                         "The {} in it does not have the following key/index from the key provided: {}"

@@ -46,7 +46,7 @@ class KerasMLRunInterface(MLRunInterface, keras.Model, ABC):
             ProgbarLogger.__name__,
             CSVLogger.__name__,
             BaseLogger.__name__,
-        ]  # type: List[str]
+        ],  # type: List[str]
     }
 
     # Methods attributes to be inserted so the keras mlrun interface will be fully enabled:
@@ -130,45 +130,24 @@ class KerasMLRunInterface(MLRunInterface, keras.Model, ABC):
 
         setattr(model, "fit", fit_wrapper(model.fit))
 
-    def auto_log(
-        self,
-        context: mlrun.MLClientCtx,
-        static_hyperparameters: Dict[
-            str, Union[TrackableType, List[Union[str, int]]]
-        ] = None,
-    ):
+    def auto_log(self, context: mlrun.MLClientCtx):
         """
         Initialize the defaulted logging callbacks by MLRun. Given the context, the method will setup a list of
         callbacks with the most common settings for logging a training session in tensorflow.keras. For further
         information regarding the logging callbacks, see 'mlrun.frameworks.keras.callbacks.MLRunLoggingCallback' and
         'mlrun.frameworks.keras.callbacks.TensorboardLoggingCallback'.
 
-        :param context:                The MLRun context to log with.
-        :param static_hyperparameters: A dictionary of static hyperparameters to note in the logs. The parameter expects
-                                       a dictionary where the keys are the hyperparameter chosen names and the values
-                                       are the hyperparameter static value or a key chain - a list of keys and indices
-                                       to know how to access the needed hyperparameter. For example, to track the
-                                       'epsilon' attribute of an optimizer and the 'epochs' of an experiment run, one
-                                       should pass:
-                                       {
-                                           "epsilon": ["optimizer", "epsilon"],
-                                           "epochs": 7
-                                       }
+        :param context: The MLRun context to log with.
         """
         # If horovod is being used, there is no need to add the logging callbacks to ranks other than 0:
         if self._hvd is not None and self._hvd.rank() != 0:
             return
 
-        # Try to get common default hyperparameters to track:
-        # TODO: Get common static hyperparameters like batch size, epochs, etc...
-        dynamic_hyperparameters = {"learning_rate": ["optimizer", "lr"]}
-
         # Add the MLRun logging callback:
         self._callbacks.append(
             MLRunLoggingCallback(
                 context=context,
-                static_hyperparameters=static_hyperparameters,
-                dynamic_hyperparameters=dynamic_hyperparameters,
+                auto_log=True
             )
         )
 
@@ -176,8 +155,7 @@ class KerasMLRunInterface(MLRunInterface, keras.Model, ABC):
         self._callbacks.append(
             TensorboardLoggingCallback(
                 context=context,
-                static_hyperparameters=static_hyperparameters,
-                dynamic_hyperparameters=dynamic_hyperparameters,
+                auto_log=True
             )
         )
 
@@ -186,7 +164,7 @@ class KerasMLRunInterface(MLRunInterface, keras.Model, ABC):
         Setup the model or wrapped model to run with horovod.
         """
         # Import horovod:
-        self._hvd = importlib.import_module('horovod.tensorflow.keras')
+        self._hvd = importlib.import_module("horovod.tensorflow.keras")
 
         # Initialize horovod:
         self._hvd.init()

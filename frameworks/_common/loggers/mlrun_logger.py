@@ -4,7 +4,7 @@ import numpy as np
 import mlrun
 from mlrun import MLClientCtx
 from mlrun.artifacts import Artifact, ChartArtifact
-from frameworks._common.utilities import ModelHandler
+from frameworks._common.model_handler import ModelHandler
 from frameworks._common.loggers.logger import Logger
 
 

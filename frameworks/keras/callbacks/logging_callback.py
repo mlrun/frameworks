@@ -1,4 +1,4 @@
-from typing import Dict, Tuple, List, Union, Any
+from typing import Dict, List, Union, Callable
 import numpy as np
 import tensorflow as tf
 from tensorflow import Tensor, Variable
@@ -16,22 +16,28 @@ class LoggingCallback(Callback):
 
     def __init__(
         self,
-        dynamic_hyperparameters: Dict[str, List[Union[str, int]]] = None,
+        dynamic_hyperparameters: Dict[
+            str, Union[List[Union[str, int]], Callable[[], TrackableType]]
+        ] = None,
         static_hyperparameters: Dict[
             str, Union[TrackableType, List[Union[str, int]]]
         ] = None,
         per_iteration_logging: int = 1,
+        auto_log: bool = False,
     ):
         """
         Initialize a logging callback with the given hyperparameters and logging configurations.
 
         :param dynamic_hyperparameters: If needed to track a hyperparameter dynamically (sample it each epoch) it should
                                         be passed here. The parameter expects a dictionary where the keys are the
-                                        hyperparameter chosen names and the values are a key chain. A key chain is a
-                                        list of keys and indices to know how to access the needed hyperparameter. For
-                                        example, to track the 'lr' attribute of an optimizer, one should pass:
+                                        hyperparameter chosen names and the values are a key chain from the model. A key
+                                        chain is a list of keys and indices to know how to access the needed
+                                        hyperparameter from the model. If the hyperparameter is not of accessible from
+                                        the model, a custom callable method can be passed. For example, to track the
+                                        'lr' attribute of an optimizer and a custom parameter, one should pass:
                                         {
-                                            "learning rate": ["optimizer", "lr"]
+                                            "learning rate": ["optimizer", "lr"],
+                                            "custom_parameter": get_custom_parameter
                                         }
         :param static_hyperparameters:  If needed to track a hyperparameter one time per run it should be passed here.
                                         The parameter expects a dictionary where the keys are the
@@ -43,14 +49,20 @@ class LoggingCallback(Callback):
                                         }
         :param per_iteration_logging:   Per how many iterations (batches) the callback should log the tracked values.
                                         Defaulted to 1 (meaning every iteration will be logged).
+        :param auto_log:                Whether or not to enable auto logging, trying to track common static and dynamic
+                                        hyperparameters.
         """
         super(LoggingCallback, self).__init__()
         self._supports_tf_logs = True
 
         # Store the configurations:
         self._per_iteration_logging = per_iteration_logging
-        self._dynamic_hyperparameters_keys = dynamic_hyperparameters
-        self._static_hyperparameters_keys = static_hyperparameters
+        self._dynamic_hyperparameters_keys = (
+            dynamic_hyperparameters if dynamic_hyperparameters is not None else {}
+        )
+        self._static_hyperparameters_keys = (
+            static_hyperparameters if static_hyperparameters is not None else {}
+        )
 
         # Initialize the logger:
         self._logger = Logger()
@@ -63,6 +75,7 @@ class LoggingCallback(Callback):
         # Setup the flags:
         self._log_iteration = False
         self._call_setup_run = True
+        self._auto_log = auto_log
 
     def get_training_results(self) -> Dict[str, List[List[float]]]:
         """
@@ -289,27 +302,25 @@ class LoggingCallback(Callback):
         hyperparameters pre run (epoch 0).
         """
         # Setup the hyperparameters dictionaries:
+        if self._auto_log:
+            self._add_auto_hyperparameters()
         # # Static hyperparameters:
-        if self._static_hyperparameters_keys:
-            for name, value in self._static_hyperparameters_keys.items():
-                if isinstance(value, List):
-                    # Its a parameter that needed to be extracted via key chain.
-                    self._logger.log_static_hyperparameter(
-                        parameter_name=name,
-                        value=self._get_hyperparameter(key_chain=value),
-                    )
-                else:
-                    # Its a custom hyperparameter.
-                    self._logger.log_static_hyperparameter(
-                        parameter_name=name, value=value
-                    )
-        # # Dynamic hyperparameters:
-        if self._dynamic_hyperparameters_keys:
-            for name, key_chain in self._dynamic_hyperparameters_keys.items():
-                self._logger.log_dynamic_hyperparameter(
+        for name, value in self._static_hyperparameters_keys.items():
+            if isinstance(value, List):
+                # Its a parameter that needed to be extracted via key chain.
+                self._logger.log_static_hyperparameter(
                     parameter_name=name,
-                    value=self._get_hyperparameter(key_chain=key_chain),
+                    value=self._get_hyperparameter(key_chain=value),
                 )
+            else:
+                # Its a custom hyperparameter.
+                self._logger.log_static_hyperparameter(parameter_name=name, value=value)
+        # # Dynamic hyperparameters:
+        for name, key_chain in self._dynamic_hyperparameters_keys.items():
+            self._logger.log_dynamic_hyperparameter(
+                parameter_name=name,
+                value=self._get_hyperparameter(key_chain=key_chain),
+            )
 
         # Mark this run was set up:
         self._call_setup_run = False
@@ -351,11 +362,32 @@ class LoggingCallback(Callback):
             sum_dictionary[metric_name] += last_metric_value
             results_dictionary[metric_name][-1].append(float(last_metric_value))
 
-    def _get_hyperparameter(self, key_chain: List[Union[str, int]]) -> TrackableType:
+    def _add_auto_hyperparameters(self):
+        """
+        Add auto log's hyperparameters if they are accessible. The automatic hyperparameters being added are:
+        learning rate.
+        """
+        # Add learning rate:
+        learning_rate_key = "Learning Rate"
+        learning_rate_key_chain = ["optimizer", "lr"]
+        if learning_rate_key not in self._dynamic_hyperparameters_keys and hasattr(
+            self.model, "optimizer"
+        ):
+            try:
+                self._get_hyperparameter(key_chain=learning_rate_key_chain)
+                self._dynamic_hyperparameters_keys[
+                    learning_rate_key
+                ] = learning_rate_key_chain
+            except (KeyError, IndexError, ValueError):
+                pass
+
+    def _get_hyperparameter(
+        self, key_chain: Union[Callable[[], TrackableType], List[Union[str, int]]]
+    ) -> TrackableType:
         """
         Access the hyperparameter from the model stored in this callback using the given key chain.
 
-        :param key_chain: The keys and indices to get to the hyperparameter from the given source object.
+        :param key_chain: The keys and indices to get to the hyperparameter from the model or a callable method.
 
         :return: The hyperparameter value.
 
@@ -363,20 +395,24 @@ class LoggingCallback(Callback):
         :raise IndexError: In case the one of the keys in the key chain is incorrect.
         :raise ValueError: In case the value is not trackable.
         """
-        # Get the value using the provided key chain:
-        value = self.model
-        for key in key_chain:
-            try:
-                if isinstance(key, int):
-                    value = value[key]
-                else:
-                    value = getattr(value, key)
-            except KeyError or IndexError as KeyChainError:
-                raise KeyChainError(
-                    "Error during getting a hyperparameter value with the key chain {}. "
-                    "The {} in it does not have the following key/index from the key provided: {}"
-                    "".format(key_chain, value.__class__, key)
-                )
+        if isinstance(key_chain, Callable):
+            # It is a custom callable method:
+            value = key_chain()
+        else:
+            # Get the value using the provided key chain:
+            value = self.model
+            for key in key_chain:
+                try:
+                    if isinstance(key, int):
+                        value = value[key]
+                    else:
+                        value = getattr(value, key)
+                except KeyError or IndexError as KeyChainError:
+                    raise KeyChainError(
+                        "Error during getting a hyperparameter value with the key chain {}. "
+                        "The {} in it does not have the following key/index from the key provided: {}"
+                        "".format(key_chain, value.__class__, key)
+                    )
 
         # Parse the value:
         if isinstance(value, Tensor) or isinstance(value, Variable):

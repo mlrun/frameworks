@@ -1,4 +1,4 @@
-from typing import List, Dict, Tuple, Union, Callable
+from typing import List, Dict, Union, Callable
 from datetime import datetime
 
 import tensorflow as tf
@@ -291,11 +291,14 @@ class TensorboardLoggingCallback(LoggingCallback):
         statistics_functions: List[
             Callable[[Union[Variable, Tensor]], Union[float, Tensor]]
         ] = None,
-        dynamic_hyperparameters: Dict[str, List[Union[str, int]]] = None,
+        dynamic_hyperparameters: Dict[
+            str, Union[List[Union[str, int]], Callable[[], TrackableType]]
+        ] = None,
         static_hyperparameters: Dict[
             str, Union[TrackableType, List[Union[str, int]]]
         ] = None,
         per_iteration_logging: int = 1,
+        auto_log: bool = False,
     ):
         """
         Initialize a tensorboard logging callback with the given weights, hyperparameters and logging configurations.
@@ -322,12 +325,14 @@ class TensorboardLoggingCallback(LoggingCallback):
                                         statistics at all simply pass an empty list '[]'.
         :param dynamic_hyperparameters: If needed to track a hyperparameter dynamically (sample it each epoch) it should
                                         be passed here. The parameter expects a dictionary where the keys are the
-                                        hyperparameter chosen names and the values are a key chain. A key chain is a
-                                        list of keys and indices to know how to access the needed hyperparameter from
-                                        the compiled model. For example, to track the 'lr' attribute of an optimizer,
-                                        one should pass:
+                                        hyperparameter chosen names and the values are a key chain from the model. A key
+                                        chain is a list of keys and indices to know how to access the needed
+                                        hyperparameter from the model. If the hyperparameter is not of accessible from
+                                        the model, a custom callable method can be passed. For example, to track the
+                                        'lr' attribute of an optimizer and a custom parameter, one should pass:
                                         {
-                                            "learning rate": ["optimizer", "lr"]
+                                            "learning rate": ["optimizer", "lr"],
+                                            "custom_parameter": get_custom_parameter
                                         }
         :param static_hyperparameters:  If needed to track a hyperparameter one time per run it should be passed here.
                                         The parameter expects a dictionary where the keys are the
@@ -339,6 +344,8 @@ class TensorboardLoggingCallback(LoggingCallback):
                                         }
         :param per_iteration_logging:   Per how many iterations (batches) the callback should log the tracked values.
                                         Defaulted to 1 (meaning every iteration will be logged).
+        :param auto_log:                Whether or not to enable auto logging, trying to track common static and dynamic
+                                        hyperparameters.
 
         :raise ValueError: In case both 'context' and 'tensorboard_directory' parameters were not given.
         """
@@ -346,7 +353,9 @@ class TensorboardLoggingCallback(LoggingCallback):
             dynamic_hyperparameters=dynamic_hyperparameters,
             static_hyperparameters=static_hyperparameters,
             per_iteration_logging=per_iteration_logging,
+            auto_log=auto_log,
         )
+
         # Validate input:
         if context is None and tensorboard_directory is None:
             raise ValueError(

@@ -1,8 +1,8 @@
-from typing import Union, List, Dict
+from typing import Union, List, Dict, Callable
 import mlrun
 from frameworks._common.loggers import MLRunLogger, TrackableType
 from frameworks.keras.callbacks.logging_callback import LoggingCallback
-from frameworks.keras.utilities.model_handler import KerasModelHandler
+from frameworks.keras.model_handler import KerasModelHandler
 
 
 class MLRunLoggingCallback(LoggingCallback):
@@ -29,11 +29,14 @@ class MLRunLoggingCallback(LoggingCallback):
     def __init__(
         self,
         context: mlrun.MLClientCtx,
-        dynamic_hyperparameters: Dict[str, List[Union[str, int]]] = None,
+            dynamic_hyperparameters: Dict[
+                str, Union[List[Union[str, int]], Callable[[], TrackableType]]
+            ] = None,
         static_hyperparameters: Dict[
             str, Union[TrackableType, List[Union[str, int]]]
         ] = None,
         per_iteration_logging: int = 1,
+        auto_log: bool = False,
     ):
         """
         Initialize an mlrun logging callback with the given hyperparameters and logging configurations.
@@ -41,11 +44,14 @@ class MLRunLoggingCallback(LoggingCallback):
         :param context:                 The mlrun context to log with.
         :param dynamic_hyperparameters: If needed to track a hyperparameter dynamically (sample it each epoch) it should
                                         be passed here. The parameter expects a dictionary where the keys are the
-                                        hyperparameter chosen names and the values are a key chain. A key chain is a
-                                        list of keys and indices to know how to access the needed hyperparameter. For
-                                        example, to track the 'lr' attribute of an optimizer, one should pass:
+                                        hyperparameter chosen names and the values are a key chain from the model. A key
+                                        chain is a list of keys and indices to know how to access the needed
+                                        hyperparameter from the model. If the hyperparameter is not of accessible from
+                                        the model, a custom callable method can be passed. For example, to track the
+                                        'lr' attribute of an optimizer and a custom parameter, one should pass:
                                         {
-                                            "learning rate": ["optimizer", "lr"]
+                                            "learning rate": ["optimizer", "lr"],
+                                            "custom_parameter": get_custom_parameter
                                         }
         :param static_hyperparameters:  If needed to track a hyperparameter one time per run it should be passed here.
                                         The parameter expects a dictionary where the keys are the
@@ -57,11 +63,14 @@ class MLRunLoggingCallback(LoggingCallback):
                                         }
         :param per_iteration_logging:   Per how many iterations (batches) the callback should log the tracked values.
                                         Defaulted to 1 (meaning every iteration will be logged).
+        :param auto_log:                Whether or not to enable auto logging, trying to track common static and dynamic
+                                        hyperparameters.
         """
         super(MLRunLoggingCallback, self).__init__(
             dynamic_hyperparameters=dynamic_hyperparameters,
             static_hyperparameters=static_hyperparameters,
             per_iteration_logging=per_iteration_logging,
+            auto_log=auto_log,
         )
 
         # Replace the logger with an MLRunLogger:

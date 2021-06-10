@@ -291,6 +291,7 @@ class TensorboardLoggingCallback(LoggingCallback):
             str, Union[TrackableType, Tuple[str, List[Union[str, int]]]]
         ] = None,
         per_iteration_logging: int = 1,
+        auto_log: bool = False,
     ):
         """
         Initialize a tensorboard logging callback with the given weights, hyperparameters and logging configurations.
@@ -339,6 +340,8 @@ class TensorboardLoggingCallback(LoggingCallback):
                                         }
         :param per_iteration_logging:   Per how many iterations (batches) the callback should log the tracked values.
                                         Defaulted to 1 (meaning every iteration will be logged).
+        :param auto_log:                Whether or not to enable auto logging, trying to track common static and dynamic
+                                        hyperparameters.
 
         :raise ValueError: In case both 'context' and 'tensorboard_directory' parameters were not given.
         """
@@ -346,6 +349,7 @@ class TensorboardLoggingCallback(LoggingCallback):
             dynamic_hyperparameters=dynamic_hyperparameters,
             static_hyperparameters=static_hyperparameters,
             per_iteration_logging=per_iteration_logging,
+            auto_log=auto_log,
         )
 
         # Validate input:

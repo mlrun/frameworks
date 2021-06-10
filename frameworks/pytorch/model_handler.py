@@ -7,7 +7,7 @@ from torch.nn import Module
 import mlrun
 from mlrun.artifacts import Artifact
 
-from frameworks._common.utilities import ModelHandler
+from frameworks._common import ModelHandler
 
 
 class PyTorchModelHandler(ModelHandler):

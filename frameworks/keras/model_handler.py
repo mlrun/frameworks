@@ -13,7 +13,7 @@ from tensorflow.keras.metrics import Metric
 import mlrun
 from mlrun.artifacts import Artifact
 
-from frameworks._common.utilities import ModelHandler
+from frameworks._common import ModelHandler
 
 
 class KerasModelHandler(ModelHandler):

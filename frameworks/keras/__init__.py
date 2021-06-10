@@ -1,9 +1,9 @@
-import frameworks.keras.utilities
 import frameworks.keras.callbacks
 
 from tensorflow import keras
 
 import mlrun
+from frameworks.keras.model_handler import KerasModelHandler
 from frameworks.keras.mlrun_interface import KerasMLRunInterface
 
 

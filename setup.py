@@ -19,6 +19,7 @@ class FrameworkKeys:
     # LIGHTNING = "Lightning"
     # TENSORFLOW = "Tensorflow"
     KERAS = "Keras"
+    # SCIKIT_LEARN = "Scikit-learn
 
 
 FRAMEWORKS_REQUIREMENTS = {
@@ -27,31 +28,26 @@ FRAMEWORKS_REQUIREMENTS = {
     # FrameworkKeys.LIGHTNING: os.path.join("frameworks", "lightning", "requirements.txt"),
     # FrameworkKeys.TENSORFLOW: os.path.join("frameworks", "tensorflow", "requirements.txt"),
     FrameworkKeys.KERAS: os.path.join("frameworks", "keras", "requirements.txt"),
+    # FrameworkKeys.SCIKIT_LEARN: os.path.join("frameworks", "scikit_learn", "requirements.txt"),
 }
 
 FRAMEWORKS_PACKAGES = {
     FrameworkKeys.COMMON: [
         "frameworks",
         "frameworks._common",
-        "frameworks._common.utilities",
         "frameworks._common.loggers",
     ],
     FrameworkKeys.PYTORCH: [
         "frameworks.pytorch",
-        "frameworks.pytorch.utilities",
-        "frameworks.pytorch.training",
-        "frameworks.pytorch.evaluation",
         "frameworks.pytorch.callbacks",
     ],
     # FrameworkKeys.LIGHTNING: ["frameworks.lightning"],
     # FrameworkKeys.TENSORFLOW: ["frameworks.tensorflow"],
     FrameworkKeys.KERAS: [
         "frameworks.keras",
-        "frameworks.keras.utilities",
-        "frameworks.keras.training",
-        "frameworks.keras.evaluation",
         "frameworks.keras.callbacks",
     ],
+    # FrameworkKeys.SCIKIT_LEARN: ["frameworks.scikit_learn"],
 }
 
 
@@ -71,6 +67,7 @@ class InstallCommand(install):
             None,
             "install only the mlrun framework extention for tensorflow.keras",
         ),
+        # ('scitkit-learn', None, "install only the mlrun framework extention for scikit-learn"),
     ]
 
     def initialize_options(self):
@@ -82,6 +79,7 @@ class InstallCommand(install):
         # self.lightning = None
         # self.tensorflow = None
         self.keras = None
+        # self.scikit_learn = None
 
     def finalize_options(self):
         """
@@ -94,6 +92,7 @@ class InstallCommand(install):
             # or self.lightning
             # or self.tensorflow
             or self.keras
+            # or self.scikit_learn
         ):
             if not self.pytorch:
                 FRAMEWORKS_REQUIREMENTS.pop(FrameworkKeys.PYTORCH)
@@ -107,6 +106,9 @@ class InstallCommand(install):
             if not self.keras:
                 FRAMEWORKS_REQUIREMENTS.pop(FrameworkKeys.KERAS)
                 FRAMEWORKS_PACKAGES.pop(FrameworkKeys.KERAS)
+            # if not self.scikit_learn:
+            #     FRAMEWORKS_REQUIREMENTS.pop(FrameworkKeys.SCIKIT_LEARN)
+            #     FRAMEWORKS_PACKAGES.pop(FrameworkKeys.SCIKIT_LEARN)
 
     def run(self):
         """
@@ -151,7 +153,7 @@ def get_requirements() -> List[str]:
 setup(
     cmdclass={"install": InstallCommand},
     name="mlrun-frameworks",
-    version="0.1.0",
+    version="0.0.1",
     description="MLRun extension packages for deep learning frameworks. Currently supporting PyTorch.",
     author="Yaron Haviv",
     author_email="yaronh@iguazio.com",

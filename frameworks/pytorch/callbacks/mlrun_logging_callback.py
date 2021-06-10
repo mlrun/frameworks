@@ -2,7 +2,7 @@ from typing import Union, List, Dict, Tuple, Callable
 import mlrun
 from frameworks._common.loggers import MLRunLogger, TrackableType
 from frameworks.pytorch.callbacks.logging_callback import LoggingCallback
-from frameworks.pytorch.utilities.model_handler import PyTorchModelHandler
+from frameworks.pytorch.model_handler import PyTorchModelHandler
 
 
 class MLRunLoggingCallback(LoggingCallback):
@@ -37,6 +37,7 @@ class MLRunLoggingCallback(LoggingCallback):
             str, Union[TrackableType, Tuple[str, List[Union[str, int]]]]
         ] = None,
         per_iteration_logging: int = 1,
+        auto_log: bool = False,
     ):
         """
         Initialize an mlrun logging callback with the given hyperparameters and logging configurations.
@@ -75,11 +76,14 @@ class MLRunLoggingCallback(LoggingCallback):
                                         }
         :param per_iteration_logging:   Per how many iterations (batches) the callback should log the tracked values.
                                         Defaulted to 1 (meaning every iteration will be logged).
+        :param auto_log:                Whether or not to enable auto logging, trying to track common static and dynamic
+                                        hyperparameters.
         """
         super(MLRunLoggingCallback, self).__init__(
             dynamic_hyperparameters=dynamic_hyperparameters,
             static_hyperparameters=static_hyperparameters,
             per_iteration_logging=per_iteration_logging,
+            auto_log=auto_log
         )
 
         # Replace the logger with an MLRunLogger:
