@@ -87,7 +87,8 @@ class KerasModelHandler(ModelHandler):
         if model_name is None:
             if model is not None:
                 model_name = model.name
-            # TODO: Get the model names from file paths (without extension '.h5'/'.json') should be static in base class
+            else:
+                model_name = self._get_model_name_from_file(path=model_path)
         super(KerasModelHandler, self).__init__(
             model=model, model_name=model_name, context=context
         )

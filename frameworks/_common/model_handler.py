@@ -1,3 +1,4 @@
+import os
 import sys
 from typing import Union, List, Dict, Any
 from abc import ABC, abstractmethod
@@ -119,9 +120,31 @@ class ModelHandler(ABC):
                 "Cannot log model if a context was not provided during initialization."
             )
 
-    def _get_model_directory(self, uid: Union[str, None], epoch: Union[int, None]):
+    def _get_model_directory(self, uid: Union[str, None], epoch: Union[int, None]) -> str:
+        """
+        Get the model directory from the database specified in the context. By default with None in both 'uid' and
+        'epoch', the latest model directory will be returned. If 'uid' is given then the directory that was produced
+        with the function related to the uid will be returned. If an epoch number is given in addition to the uid, a
+        checkpoint of the run in the given epoch will be returned.
+
+        :param uid:   Function uid to look for.
+        :param epoch: An epoch that produced a checkpoint to look for.
+
+        :return: The model's directory path.
+        """
         # TODO: Implement using tags in db
         pass
+
+    @staticmethod
+    def _get_model_name_from_file(path: str):
+        """
+        Get the model's name from its file (without the file's type).
+
+        :param path: The path to the model's file.
+
+        :return: The model file's name.
+        """
+        return os.path.basename(path).split('.')[0]
 
     @staticmethod
     def _import_module(classes_names: List[str], py_file_path: str) -> Dict[str, Any]:
