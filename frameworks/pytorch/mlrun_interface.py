@@ -1,4 +1,4 @@
-from typing import Union, Tuple, List, Dict
+from typing import Union, Tuple, List, Dict, Any
 import sys
 import importlib
 
@@ -41,6 +41,7 @@ class PyTorchMLRunInterface:
         validation_set: DataLoader = None,
         metric_functions: List[MetricFunctionType] = None,
         scheduler=None,
+        scheduler_step_frequency: Union[int, float, str] = "epoch",
         epochs: int = 1,
         training_iterations: int = None,
         validation_iterations: int = None,
@@ -53,23 +54,29 @@ class PyTorchMLRunInterface:
         should not be used directly. To get an interface ready for training / evaluation, use
         'PyTorchMLRunInterface.init_trainer' / 'PyTorchMLRunInterface.init_evaluator'.
 
-        :param model:                 The model to train.
-        :param training_set:          A data loader for the training process.
-        :param loss_function:         The loss function to use during training.
-        :param optimizer:             The optimizer to use during the training.
-        :param validation_set:        A data loader for the validation process.
-        :param metric_functions:      The metrics to use on training and validation.
-        :param scheduler:             Scheduler to use on the optimizer at the end of each epoch. The scheduler must
-                                      have a 'step' method with no input.
-        :param epochs:                Amount of epochs to perform. Defaulted to a single epoch.
-        :param training_iterations:   Amount of iterations (batches) to perform on each epoch's training. If 'None' the
-                                      entire training set will be used.
-        :param validation_iterations: Amount of iterations (batches) to perform on each epoch's validation. If 'None'
-                                      the entire validation set will be used.
-        :param callbacks:             The callbacks to use on this run.
-        :param use_cuda:              Whether or not to use cuda. Only relevant if cuda is available. Defaulted to True.
-        :param use_horovod:           Whether or not to use horovod - a distributed training framework. Defaulted to
-                                      False.
+        :param model:                    The model to train.
+        :param training_set:             A data loader for the training process.
+        :param loss_function:            The loss function to use during training.
+        :param optimizer:                The optimizer to use during the training.
+        :param validation_set:           A data loader for the validation process.
+        :param metric_functions:         The metrics to use on training and validation.
+        :param scheduler:                Scheduler to use on the optimizer at the end of each epoch. The scheduler must
+                                         have a 'step' method with no input.
+        :param scheduler_step_frequency: The frequecny in which to step the given scheduler. Can be equal to one of the
+                                         strings 'epoch' (for at the end of every epoch) and 'batch' (for at the end of
+                                         every batch), or an integer that specify per how many iterations to step or a
+                                         float percentage (0.0 < x < 1.0) for per x / iterations to step. Defaulted to
+                                         'epoch'.
+        :param epochs:                   Amount of epochs to perform. Defaulted to a single epoch.
+        :param training_iterations:      Amount of iterations (batches) to perform on each epoch's training. If 'None'
+                                         the entire training set will be used.
+        :param validation_iterations:    Amount of iterations (batches) to perform on each epoch's validation. If 'None'
+                                         the entire validation set will be used.
+        :param callbacks:                The callbacks to use on this run.
+        :param use_cuda:                 Whether or not to use cuda. Only relevant if cuda is available. Defaulted to
+                                         True.
+        :param use_horovod:              Whether or not to use horovod - a distributed training framework. Defaulted to
+                                         False.
 
         :raise ValueError: In case one of the given parameters are invalid.
         """
@@ -114,6 +121,29 @@ class PyTorchMLRunInterface:
                     epochs
                 )
             )
+        # # Scheduler step frequency:
+        if isinstance(scheduler_step_frequency, str):
+            if scheduler_step_frequency == "epoch":
+                scheduler_step_frequency = training_iterations
+            elif scheduler_step_frequency == "batch":
+                scheduler_step_frequency = 1
+            else:
+                raise ValueError(
+                    "The scheduler step frequency parameter can be passed as a string of two values: "
+                    "'epoch' or 'batch', but the value given was: '{}'".format(
+                        scheduler_step_frequency
+                    )
+                )
+        elif isinstance(scheduler_step_frequency, float):
+            if scheduler_step_frequency < 0.0 or scheduler_step_frequency > 1.0:
+                raise ValueError(
+                    "The scheduler step frequency parameter can be passed as a float with value between "
+                    "0.0 to 1.0, but the value given was: '{}'".format(
+                        scheduler_step_frequency
+                    )
+                )
+            scheduler_step_frequency = int(training_iterations * scheduler_step_frequency)
+
         # # Callbacks:
         if callbacks is None:
             callbacks = []
@@ -126,6 +156,7 @@ class PyTorchMLRunInterface:
         self._validation_set = validation_set
         self._metric_functions = metric_functions
         self._scheduler = scheduler
+        self._scheduler_step_frequency = scheduler_step_frequency
         self._epochs = epochs
         self._training_iterations = training_iterations
         self._validation_iterations = validation_iterations
@@ -155,7 +186,7 @@ class PyTorchMLRunInterface:
         callbacks: List[Callback] = None,
         use_cuda: bool = True,
         use_horovod: bool = False,
-    ) -> 'PyTorchMLRunInterface':
+    ) -> "PyTorchMLRunInterface":
         """
         Initialize the interface for training on the given parameters.
 
@@ -206,7 +237,7 @@ class PyTorchMLRunInterface:
         callbacks: List[Callback] = None,
         use_cuda: bool = True,
         use_horovod: bool = False,
-    ) -> 'PyTorchMLRunInterface':
+    ) -> "PyTorchMLRunInterface":
         """
         Initialize the interface for evaluation on the given parameters.
 
@@ -288,12 +319,6 @@ class PyTorchMLRunInterface:
                 ):
                     break
 
-            # Step scheduler:
-            if self._scheduler:
-                self._callbacks_handler.on_scheduler_step_begin()
-                self._scheduler.step()
-                self._callbacks_handler.on_scheduler_step_end()
-
             # End of a epoch callbacks:
             if not self._callbacks_handler.on_epoch_end(epoch=epoch):
                 break
@@ -354,31 +379,52 @@ class PyTorchMLRunInterface:
         self,
         context: MLClientCtx,
         custom_objects: Dict[Union[str, List[str]], str] = None,
+        mlrun_callback__kwargs: Dict[str, Any] = None,
+        tensorboard_callback_kwargs: Dict[str, Any] = None,
     ):
         """
         Get automatic logging callbacks to both MLRun's context and Tensorboard. For further features of logging to both
         MLRun and Tensorboard, see 'pytorch.callbacks.MLRunLoggingCallback' and
         'pytorch.callbacks.TensorboardLoggingCallback'.
 
-        :param context:        The context to use for the logs.
-        :param custom_objects: Custom objects the model is using. Expecting a dictionary with the classes names to
-                               import as keys (if multiple classes needed to be imported from the same py file a list
-                               can be given) and the python file from where to import them as their values. The model
-                               class itself must be specified in order to properly save it for later being loaded with
-                               a handler. For example:
-                               {
-                                   "class_name": "/path/to/model.py",
-                                   ["layer1", "layer2"]: "/path/to/custom_layers.py"
-                               }
+        :param context:                     The context to use for the logs.
+        :param custom_objects:              Custom objects the model is using. Expecting a dictionary with the classes
+                                            names to import as keys (if multiple classes needed to be imported from the
+                                            same py file a list can be given) and the python file from where to import
+                                            them as their values. The model class itself must be specified in order to
+                                            properly save it for later being loaded with a handler. For example:
+                                            {
+                                                "class_name": "/path/to/model.py",
+                                                ["layer1", "layer2"]: "/path/to/custom_layers.py"
+                                            }
+        :param mlrun_callback__kwargs:      Key word arguments for the MLRun callback. For further information see the
+                                            documentation of the class 'MLRunLoggingCallback'. Note that both 'context',
+                                            'custom_objects' and 'auto_log' parameters are already given here.
+        :param tensorboard_callback_kwargs: Key word arguments for the tensorboard callback. For further information see
+                                            the documentation of the class 'TensorboardLoggingCallback'. Note that both
+                                            'context' and 'auto_log' parameters are already given here.
         """
+        # Set the dictionaries defaults:
+        mlrun_callback__kwargs = (
+            {} if mlrun_callback__kwargs is None else mlrun_callback__kwargs
+        )
+        tensorboard_callback_kwargs = (
+            {} if tensorboard_callback_kwargs is None else tensorboard_callback_kwargs
+        )
+
         # Initialize and return the callbacks:
         self._callbacks.append(
             MLRunLoggingCallback(
-                context=context, custom_objects=custom_objects, auto_log=True
+                context=context,
+                custom_objects=custom_objects,
+                auto_log=True,
+                **mlrun_callback__kwargs
             )
         )
         self._callbacks.append(
-            TensorboardLoggingCallback(context=context, auto_log=True)
+            TensorboardLoggingCallback(
+                context=context, auto_log=True, **tensorboard_callback_kwargs
+            )
         )
 
     def _setup(self):
@@ -530,6 +576,15 @@ class PyTorchMLRunInterface:
             self._callbacks_handler.on_optimizer_step_begin()
             self._optimizer.step()
             self._callbacks_handler.on_optimizer_step_end()
+
+            # Step scheduler:
+            if (
+                self._scheduler is not None
+                and (batch + 1) % self._scheduler_step_frequency == 0
+            ):
+                self._callbacks_handler.on_scheduler_step_begin()
+                self._scheduler.step()
+                self._callbacks_handler.on_scheduler_step_end()
 
             # End of batch callbacks:
             if not self._callbacks_handler.on_train_batch_end(

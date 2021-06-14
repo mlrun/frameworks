@@ -1,4 +1,4 @@
-from typing import Union, List, Dict, Type
+from typing import Union, List, Dict, Type, Any
 
 import os
 
@@ -171,7 +171,7 @@ class KerasModelHandler(ModelHandler):
             model_architecture = self._model.to_json()
 
             model_path = "{}.json".format(self._model_name)
-            with open(model_path, 'w') as json_file:
+            with open(model_path, "w") as json_file:
                 json_file.write(model_architecture)
             # Save the model weights (h5):
             weights_path = "{}.h5".format(self._model_name)
@@ -227,16 +227,30 @@ class KerasModelHandler(ModelHandler):
             # self._save_format = SaveFormats.SAVED_MODEL
             raise NotImplementedError
 
-    def log(self, artifacts: Dict[str, Artifact]):
+    def log(
+        self,
+        labels: Dict[str, Union[str, int, float]],
+        parameters: Dict[str, Union[str, int, float]],
+        extra_data: Dict[str, Any],
+        artifacts: Dict[str, Artifact],
+    ):
         """
         Log the model held by this handler into the MLRun context provided.
 
-        :param artifacts: Artifacts to log the model with.
+        :param labels:     Labels to log the model with.
+        :param parameters: Parameters to log with the model.
+        :param extra_data: Extra data to log with the model.
+        :param artifacts:  Artifacts to log the model with.
 
         :raise RuntimeError: In case there is no model in this handler.
         :raise ValueError:   In case a context is missing.
         """
-        super(KerasModelHandler, self).log(artifacts=artifacts)
+        super(KerasModelHandler, self).log(
+            labels=labels,
+            parameters=parameters,
+            extra_data=extra_data,
+            artifacts=artifacts,
+        )
 
         # Save the model:
         model_artifacts = self.save(update_paths=True)
@@ -246,12 +260,10 @@ class KerasModelHandler(ModelHandler):
             self._model.name,
             model_file=self._model_path,
             framework="tensorflow.keras",
-            labels={"framework": "tensorflow.keras", "save-format": self._save_format},
+            labels={"save-format": self._save_format, **labels},
+            parameters=parameters,
             metrics=self._context.results,
-            extra_data={
-                **model_artifacts,
-                **artifacts
-            },
+            extra_data={**model_artifacts, **artifacts, **extra_data},
         )
 
     def _import_custom_objects(self):

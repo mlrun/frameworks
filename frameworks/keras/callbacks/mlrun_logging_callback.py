@@ -1,5 +1,6 @@
 from typing import Union, List, Dict, Callable
 import mlrun
+from mlrun.artifacts import Artifact
 from frameworks._common.loggers import MLRunLogger, TrackableType
 from frameworks.keras.callbacks.logging_callback import LoggingCallback
 from frameworks.keras.model_handler import KerasModelHandler
@@ -29,9 +30,12 @@ class MLRunLoggingCallback(LoggingCallback):
     def __init__(
         self,
         context: mlrun.MLClientCtx,
-            dynamic_hyperparameters: Dict[
-                str, Union[List[Union[str, int]], Callable[[], TrackableType]]
-            ] = None,
+        log_model_labels: Dict[str, TrackableType] = None,
+        log_model_parameters: Dict[str, TrackableType] = None,
+        log_model_extra_data: Dict[str, Union[TrackableType, Artifact]] = None,
+        dynamic_hyperparameters: Dict[
+            str, Union[List[Union[str, int]], Callable[[], TrackableType]]
+        ] = None,
         static_hyperparameters: Dict[
             str, Union[TrackableType, List[Union[str, int]]]
         ] = None,
@@ -42,6 +46,9 @@ class MLRunLoggingCallback(LoggingCallback):
         Initialize an mlrun logging callback with the given hyperparameters and logging configurations.
 
         :param context:                 The mlrun context to log with.
+        :param log_model_labels:        Labels to log with the model.
+        :param log_model_parameters:    Parameters to log with the model.
+        :param log_model_extra_data:    Extra data to log with the model.
         :param dynamic_hyperparameters: If needed to track a hyperparameter dynamically (sample it each epoch) it should
                                         be passed here. The parameter expects a dictionary where the keys are the
                                         hyperparameter chosen names and the values are a key chain from the model. A key
@@ -75,7 +82,12 @@ class MLRunLoggingCallback(LoggingCallback):
 
         # Replace the logger with an MLRunLogger:
         del self._logger
-        self._logger = MLRunLogger(context=context)
+        self._logger = MLRunLogger(
+            context=context,
+            log_model_labels=log_model_labels,
+            log_model_parameters=log_model_parameters,
+            log_model_extra_data=log_model_extra_data,
+        )
 
     def on_train_end(self, logs: dict = None):
         """

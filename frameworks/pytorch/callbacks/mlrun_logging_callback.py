@@ -1,5 +1,6 @@
 from typing import Union, List, Dict, Tuple, Callable
 import mlrun
+from mlrun.artifacts import Artifact
 from frameworks._common.loggers import MLRunLogger, TrackableType
 from frameworks.pytorch.callbacks.logging_callback import LoggingCallback
 from frameworks.pytorch.model_handler import PyTorchModelHandler
@@ -29,7 +30,10 @@ class MLRunLoggingCallback(LoggingCallback):
     def __init__(
         self,
         context: mlrun.MLClientCtx,
-        custom_objects: Dict[Union[str, List[str]], str],
+        log_model_labels: Dict[str, TrackableType] = None,
+        log_model_parameters: Dict[str, TrackableType] = None,
+        log_model_extra_data: Dict[str, Union[TrackableType, Artifact]] = None,
+        custom_objects: Dict[Union[str, List[str]], str] = None,
         dynamic_hyperparameters: Dict[
             str, Tuple[str, Union[List[Union[str, int]], Callable[[], TrackableType]]]
         ] = None,
@@ -43,6 +47,9 @@ class MLRunLoggingCallback(LoggingCallback):
         Initialize an mlrun logging callback with the given hyperparameters and logging configurations.
 
         :param context:                 The mlrun context to log with.
+        :param log_model_labels:        Labels to log with the model.
+        :param log_model_parameters:    Parameters to log with the model.
+        :param log_model_extra_data:    Extra data to log with the model.
         :param custom_objects:          Custom objects the model is using. Expecting a dictionary with the classes names
                                         to import as keys (if multiple classes needed to be imported from the same py
                                         file a list can be given) and the python file from where to import them as their
@@ -83,12 +90,17 @@ class MLRunLoggingCallback(LoggingCallback):
             dynamic_hyperparameters=dynamic_hyperparameters,
             static_hyperparameters=static_hyperparameters,
             per_iteration_logging=per_iteration_logging,
-            auto_log=auto_log
+            auto_log=auto_log,
         )
 
         # Replace the logger with an MLRunLogger:
         del self._logger
-        self._logger = MLRunLogger(context=context)
+        self._logger = MLRunLogger(
+            context=context,
+            log_model_labels=log_model_labels,
+            log_model_parameters=log_model_parameters,
+            log_model_extra_data=log_model_extra_data,
+        )
 
         # Store the custom objects:
         self._custom_objects = custom_objects

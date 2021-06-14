@@ -102,11 +102,20 @@ class ModelHandler(ABC):
             del self._model
 
     @abstractmethod
-    def log(self, artifacts: Dict[str, Artifact]):
+    def log(
+        self,
+        labels: Dict[str, Union[str, int, float]],
+        parameters: Dict[str, Union[str, int, float]],
+        extra_data: Dict[str, Any],
+        artifacts: Dict[str, Artifact],
+    ):
         """
         Log the model held by this handler into the MLRun context provided.
 
-        :param artifacts: Artifacts to log the model with.
+        :param labels:     Labels to log the model with.
+        :param parameters: Parameters to log with the model.
+        :param extra_data: Extra data to log with the model.
+        :param artifacts:  Artifacts to log the model with. Will be added to the extra data.
 
         :raise RuntimeError: In case there is no model in this handler.
         :raise ValueError:   In case a context is missing.
@@ -120,7 +129,9 @@ class ModelHandler(ABC):
                 "Cannot log model if a context was not provided during initialization."
             )
 
-    def _get_model_directory(self, uid: Union[str, None], epoch: Union[int, None]) -> str:
+    def _get_model_directory(
+        self, uid: Union[str, None], epoch: Union[int, None]
+    ) -> str:
         """
         Get the model directory from the database specified in the context. By default with None in both 'uid' and
         'epoch', the latest model directory will be returned. If 'uid' is given then the directory that was produced
@@ -144,7 +155,7 @@ class ModelHandler(ABC):
 
         :return: The model file's name.
         """
-        return os.path.basename(path).split('.')[0]
+        return os.path.basename(path).split(".")[0]
 
     @staticmethod
     def _import_module(classes_names: List[str], py_file_path: str) -> Dict[str, Any]:

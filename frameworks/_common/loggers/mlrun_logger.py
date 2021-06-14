@@ -28,16 +28,34 @@ class MLRunLogger(Logger):
       * Model is logged with all of the files and artifacts.
     """
 
-    def __init__(self, context: MLClientCtx):
+    def __init__(
+        self,
+        context: MLClientCtx,
+        log_model_labels: Dict[str, TrackableType],
+        log_model_parameters: Dict[str, TrackableType],
+        log_model_extra_data: Dict[str, Union[TrackableType, Artifact]],
+    ):
         """
         Initialize the MLRun logging interface to work with the given context.
 
-        :param context: MLRun context to log to.
+        :param context:              MLRun context to log to.
+        :param log_model_labels:     Labels to log with the model.
+        :param log_model_parameters: Parameters to log with the model.
+        :param log_model_extra_data: Extra data to log with the model.
         """
         super(MLRunLogger, self).__init__()
 
         # Store the context:
         self._context = context
+        self._log_model_labels = (
+            log_model_labels if log_model_labels is not None else {}
+        )
+        self._log_model_parameters = (
+            log_model_parameters if log_model_parameters is not None else {}
+        )
+        self._log_model_extra_data = (
+            log_model_extra_data if log_model_extra_data is not None else {}
+        )
 
         # Prepare the artifacts collection:
         self._artifacts = {}  # type: Dict[str, Artifact]
@@ -175,7 +193,7 @@ class MLRunLogger(Logger):
                     np.array(
                         [list(np.arange(len(parameter_values))), parameter_values]
                     ).transpose(),
-                )
+                ),
             )
             # Log the artifact:
             self._context.log_artifact(
@@ -187,7 +205,12 @@ class MLRunLogger(Logger):
 
         # Log the model:
         model_handler.set_context(context=self._context)
-        model_handler.log(self._artifacts)
+        model_handler.log(
+            labels=self._log_model_labels,
+            parameters=self._log_model_parameters,
+            extra_data=self._log_model_extra_data,
+            artifacts=self._artifacts,
+        )
 
         # Commit:
         self._context.commit()

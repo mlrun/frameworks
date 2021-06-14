@@ -56,6 +56,7 @@ class LoggingCallback(Callback):
         self._supports_tf_logs = True
 
         # Store the configurations:
+        # TODO: Change to logging_frequency and enable float (percentage of data_loader) and string ('epoch', 'batch').
         self._per_iteration_logging = per_iteration_logging
         self._dynamic_hyperparameters_keys = (
             dynamic_hyperparameters if dynamic_hyperparameters is not None else {}

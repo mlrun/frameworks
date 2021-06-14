@@ -1,6 +1,5 @@
 from abc import ABC
-from typing import Union, List, Dict, Tuple, Callable
-from types import MethodType, FunctionType
+from typing import Union, List, Dict, Tuple, Any
 import os
 import importlib
 
@@ -21,7 +20,6 @@ from frameworks._common import MLRunInterface
 from frameworks.keras.callbacks import (
     MLRunLoggingCallback,
     TensorboardLoggingCallback,
-    TrackableType,
 )
 
 
@@ -130,32 +128,49 @@ class KerasMLRunInterface(MLRunInterface, keras.Model, ABC):
 
         setattr(model, "fit", fit_wrapper(model.fit))
 
-    def auto_log(self, context: mlrun.MLClientCtx):
+    def auto_log(
+        self,
+        context: mlrun.MLClientCtx,
+        mlrun_callback__kwargs: Dict[str, Any] = None,
+        tensorboard_callback_kwargs: Dict[str, Any] = None,
+    ):
         """
         Initialize the defaulted logging callbacks by MLRun. Given the context, the method will setup a list of
         callbacks with the most common settings for logging a training session in tensorflow.keras. For further
         information regarding the logging callbacks, see 'mlrun.frameworks.keras.callbacks.MLRunLoggingCallback' and
         'mlrun.frameworks.keras.callbacks.TensorboardLoggingCallback'.
 
-        :param context: The MLRun context to log with.
+        :param context:                     The MLRun context to log with.
+        :param mlrun_callback__kwargs:      Key word arguments for the MLRun callback. For further information see the
+                                            documentation of the class 'MLRunLoggingCallback'. Note that both 'context'
+                                            and 'auto_log' parameters are already given here.
+        :param tensorboard_callback_kwargs: Key word arguments for the tensorboard callback. For further information see
+                                            the documentation of the class 'TensorboardLoggingCallback'. Note that both
+                                            'context' and 'auto_log' parameters are already given here.
         """
         # If horovod is being used, there is no need to add the logging callbacks to ranks other than 0:
         if self._hvd is not None and self._hvd.rank() != 0:
             return
 
+        # Set the dictionaries defaults:
+        mlrun_callback__kwargs = (
+            {} if mlrun_callback__kwargs is None else mlrun_callback__kwargs
+        )
+        tensorboard_callback_kwargs = (
+            {} if tensorboard_callback_kwargs is None else tensorboard_callback_kwargs
+        )
+
         # Add the MLRun logging callback:
         self._callbacks.append(
             MLRunLoggingCallback(
-                context=context,
-                auto_log=True
+                context=context, auto_log=True, **mlrun_callback__kwargs
             )
         )
 
         # Add the Tensorboard logging callback:
         self._callbacks.append(
             TensorboardLoggingCallback(
-                context=context,
-                auto_log=True
+                context=context, auto_log=True, **tensorboard_callback_kwargs
             )
         )
 

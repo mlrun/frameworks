@@ -18,7 +18,7 @@ from frameworks.keras.callbacks.logging_callback import LoggingCallback
 
 class _KerasTensorboardLogger(TensorboardLogger):
     """
-    The PyTorch framework implementation of the 'TensorboardLogger'.
+    The keras framework implementation of the 'TensorboardLogger'.
     """
 
     def __init__(
@@ -362,7 +362,8 @@ class TensorboardLoggingCallback(LoggingCallback):
                 "Expecting to receive a mlrun.MLClientCtx context or a path to a directory to output"
                 "the logging file but None were given."
             )
-        # Replace the logger with an MLRunLogger:
+
+        # Replace the logger with a TensorboardLogger:
         del self._logger
         self._logger = _KerasTensorboardLogger(
             statistics_functions=(
