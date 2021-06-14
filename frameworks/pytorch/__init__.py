@@ -39,7 +39,8 @@ def train(
     custom_objects: Dict[Union[str, List[str]], str] = None,
 ):
     """
-    Use MLRun's PyTorch interface to train the model.
+    Use MLRun's PyTorch interface to train the model with the given parameters. For more information and further options
+    regarding the auto logging, see 'PyTorchMLRunInterface' documentation.
 
     :param model:                 The model to train.
     :param training_set:          A data loader for the training process.
@@ -73,8 +74,15 @@ def train(
 
     :return: The initialized trainer.
     """
-    trainer = PyTorchMLRunInterface.init_trainer(
-        model=model,
+    # Initialize the interface:
+    interface = PyTorchMLRunInterface(model=model, context=context)
+
+    # Add auto logging:
+    if auto_log:
+        interface.add_auto_logging_callbacks(custom_objects=custom_objects)
+
+    # Train:
+    interface.train(
         training_set=training_set,
         loss_function=loss_function,
         optimizer=optimizer,
@@ -88,11 +96,6 @@ def train(
         use_cuda=use_cuda,
         use_horovod=use_horovod,
     )
-    if auto_log:
-        trainer.add_auto_logging_callbacks(
-            context=context, custom_objects=custom_objects
-        )
-    trainer.train()
 
 
 def evaluate(
@@ -109,7 +112,8 @@ def evaluate(
     custom_objects: Dict[Union[str, List[str]], str] = None,
 ) -> List[MetricValueType]:
     """
-    Use MLRun's PyTorch interface to evaluate the model.
+    Use MLRun's PyTorch interface to evaluate the model with the given parameters. For more information and further
+    options regarding the auto logging, see 'PyTorchMLRunInterface' documentation.
 
     :param model:            The model to evaluate.
     :param dataset:          A data loader for the validation process.
@@ -134,8 +138,15 @@ def evaluate(
 
     :return: The initialized evaluator.
     """
-    evaluator = PyTorchMLRunInterface.init_evaluator(
-        model=model,
+    # Initialize the interface:
+    interface = PyTorchMLRunInterface(model=model, context=context)
+
+    # Add auto logging:
+    if auto_log:
+        interface.add_auto_logging_callbacks(custom_objects=custom_objects)
+
+    # Evaluate:
+    return interface.evaluate(
         dataset=dataset,
         loss_function=loss_function,
         metric_functions=metric_functions,
@@ -144,8 +155,3 @@ def evaluate(
         use_cuda=use_cuda,
         use_horovod=use_horovod,
     )
-    if auto_log:
-        evaluator.add_auto_logging_callbacks(
-            context=context, custom_objects=custom_objects
-        )
-    return evaluator.evaluate()

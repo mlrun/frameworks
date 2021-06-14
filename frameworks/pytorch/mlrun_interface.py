@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.optim import Optimizer
 
-from mlrun.execution import MLClientCtx
+import mlrun
 from frameworks.pytorch.callbacks import (
     Callback,
     MetricFunctionType,
@@ -28,13 +28,301 @@ from frameworks.pytorch.callbacks_handler import CallbacksHandler
 
 class PyTorchMLRunInterface:
     """
-    An interface for enabling convinient MLRun features for the PyTorch framework, including training, evaluating and
+    An interface for enabling convenient MLRun features for the PyTorch framework, including training, evaluating and
     automatic logging.
     """
 
-    def __init__(
+    def __init__(self, model: Module, context: mlrun.MLClientCtx = None):
+        """
+        Initialize an interface for running training and evaluation on the given parameters.
+
+        :param model:   The model to train / evaluate.
+        :param context: MLRun context to use. If None, the context will be taken from 'mlrun.get_or_create_ctx()'.
+        """
+        # Set the context:
+        if context is None:
+            context = mlrun.get_or_create_ctx(None)
+
+        # Store the model:
+        self._model = model
+        self._context = context
+
+        # Prepare methods parameters:
+        self._training_set = None  # type: DataLoader
+        self._loss_function = None  # type: Module
+        self._optimizer = None  # type: Optimizer
+        self._validation_set = None  # type: DataLoader
+        self._metric_functions = None  # type: List[MetricFunctionType]
+        self._scheduler = None
+        self._scheduler_step_frequency = None  # type: int
+        self._epochs = None  # type: int
+        self._training_iterations = None  # type: int
+        self._validation_iterations = None  # type: int
+        self._callbacks = None  # type: List[Callback]
+        self._use_cuda = None  # type: bool
+        self._use_horovod = None  # type: bool
+
+        # Prepare inner attributes:
+        self._model_in_cuda = False
+        self._hvd = None
+        self._training_sampler = None  # type: DistributedSampler
+        self._validation_sampler = None  # type: DistributedSampler
+        self._callbacks_handler = None  # type: CallbacksHandler
+
+    def train(
         self,
-        model: Module,
+        training_set: DataLoader,
+        loss_function: Module,
+        optimizer: Optimizer,
+        validation_set: DataLoader = None,
+        metric_functions: List[MetricFunctionType] = None,
+        scheduler=None,
+        scheduler_step_frequency: Union[int, float, str] = "epoch",
+        epochs: int = 1,
+        training_iterations: int = None,
+        validation_iterations: int = None,
+        callbacks: List[Callback] = None,
+        use_cuda: bool = True,
+        use_horovod: bool = None,
+    ):
+        """
+        Initiate a training process on this interface configuration.
+
+        :param training_set:             A data loader for the training process.
+        :param loss_function:            The loss function to use during training.
+        :param optimizer:                The optimizer to use during the training.
+        :param validation_set:           A data loader for the validation process.
+        :param metric_functions:         The metrics to use on training and validation.
+        :param scheduler:                Scheduler to use on the optimizer at the end of each epoch. The scheduler must
+                                         have a 'step' method with no input.
+        :param scheduler_step_frequency: The frequency in which to step the given scheduler. Can be equal to one of the
+                                         strings 'epoch' (for at the end of every epoch) and 'batch' (for at the end of
+                                         every batch), or an integer that specify per how many iterations to step or a
+                                         float percentage (0.0 < x < 1.0) for per x / iterations to step. Defaulted to
+                                         'epoch'.
+        :param epochs:                   Amount of epochs to perform. Defaulted to a single epoch.
+        :param training_iterations:      Amount of iterations (batches) to perform on each epoch's training. If 'None'
+                                         the entire training set will be used.
+        :param validation_iterations:    Amount of iterations (batches) to perform on each epoch's validation. If 'None'
+                                         the entire validation set will be used.
+        :param callbacks:                The callbacks to use on this run.
+        :param use_cuda:                 Whether or not to use cuda. Only relevant if cuda is available. Defaulted to
+                                         True.
+        :param use_horovod:              Whether or not to use horovod - a distributed training framework. Defaulted to
+                                         None, meaning it will be read from context if available and if not - False.
+        """
+        # Load the input:
+        self._parse_and_store(
+            training_set=training_set,
+            loss_function=loss_function,
+            optimizer=optimizer,
+            validation_set=validation_set,
+            metric_functions=metric_functions,
+            scheduler=scheduler,
+            scheduler_step_frequency=scheduler_step_frequency,
+            epochs=epochs,
+            training_iterations=training_iterations,
+            validation_iterations=validation_iterations,
+            callbacks=callbacks,
+            use_cuda=use_cuda,
+            use_horovod=use_horovod,
+        )
+
+        # Setup the inner attributes (initializing horovod and creating the callbacks handler):
+        self._setup()
+
+        # Beginning of run callbacks:
+        self._callbacks_handler.on_run_begin()
+
+        # Start the epochs:
+        for epoch in range(self._epochs):
+            # Beginning of a epoch callbacks:
+            self._callbacks_handler.on_epoch_begin(epoch=epoch)
+            print(
+                "Epoch {}/{}:".format(
+                    str(epoch + 1).rjust(len(str(self._epochs))), self._epochs
+                )
+            )
+
+            # Train:
+            self._callbacks_handler.on_train_begin()
+            self._train()
+            if not self._callbacks_handler.on_train_end():
+                break
+
+            # Validate:
+            if self._validation_set is not None:
+                self._callbacks_handler.on_validation_begin()
+                loss_value, metric_values = self._validate()
+                # If horovod is used, wait for all ranks to calculate the loss and metrics averages:
+                if self._use_horovod:
+                    loss_value = self._metric_average(
+                        rank_value=loss_value,
+                        name="average_{}".format(
+                            self._get_metric_name(metric=self._loss_function)
+                        ),
+                    )
+                    metric_values = [
+                        self._metric_average(
+                            rank_value=metric_value,
+                            name="average_{}".format(
+                                self._get_metric_name(metric=metric_function)
+                            ),
+                        )
+                        for metric_value, metric_function in zip(
+                            metric_values, self._metric_functions
+                        )
+                    ]
+                self._print_results(loss_value=loss_value, metric_values=metric_values)
+                if not self._callbacks_handler.on_validation_end(
+                    loss_value=loss_value, metric_values=metric_values
+                ):
+                    break
+
+            # End of a epoch callbacks:
+            if not self._callbacks_handler.on_epoch_end(epoch=epoch):
+                break
+            print()
+
+        # End of run callbacks:
+        self._callbacks_handler.on_run_end()
+
+        # Clear the interface:
+        self._clear()
+
+    def evaluate(
+        self,
+        dataset: DataLoader,
+        loss_function: Module = None,
+        metric_functions: List[MetricFunctionType] = None,
+        iterations: int = None,
+        callbacks: List[Callback] = None,
+        use_cuda: bool = True,
+        use_horovod: bool = None,
+    ) -> List[MetricValueType]:
+        """
+        Initiate an evaluation process on this interface configuration.
+
+        :param dataset:          A data loader for the validation process.
+        :param loss_function:    The loss function to use during training.
+        :param metric_functions: The metrics to use on training and validation.
+        :param iterations:       Amount of iterations (batches) to perform on the dataset. If 'None' the entire dataset
+                                 will be used.
+        :param callbacks:        The callbacks to use on this run.
+        :param use_cuda:         Whether or not to use cuda. Only relevant if cuda is available. Defaulted to True.
+        :param use_horovod:      Whether or not to use horovod - a distributed training framework. Defaulted to None,
+                                 meaning it will be read from context if available and if not - False.
+
+        :return: The evaluation loss and metrics results in a list.
+        """
+        # Load the input:
+        self._parse_and_store(
+            validation_set=dataset,
+            loss_function=loss_function,
+            metric_functions=metric_functions,
+            validation_iterations=iterations,
+            callbacks=callbacks,
+            use_cuda=use_cuda,
+            use_horovod=use_horovod,
+        )
+
+        # Setup the inner attributes (initializing horovod and creating the callbacks handler):
+        self._setup()
+
+        # Beginning of run callbacks:
+        self._callbacks_handler.on_run_begin()
+
+        # Evaluate:
+        self._callbacks_handler.on_validation_begin()
+        loss_value, metric_values = self._validate(is_evaluation=True)
+
+        # If horovod is used, wait for all ranks to calculate the loss and metrics averages:
+        if self._use_horovod:
+            loss_value = self._metric_average(
+                rank_value=loss_value,
+                name="average_{}".format(
+                    self._get_metric_name(metric=self._loss_function)
+                ),
+            )
+            metric_values = [
+                self._metric_average(
+                    rank_value=metric_value,
+                    name="average_{}".format(
+                        self._get_metric_name(metric=metric_function)
+                    ),
+                )
+                for metric_value, metric_function in zip(
+                    metric_values, self._metric_functions
+                )
+            ]
+
+        # End the validation:
+        self._print_results(loss_value=loss_value, metric_values=metric_values)
+        self._callbacks_handler.on_validation_end(
+            loss_value=loss_value, metric_values=metric_values
+        )
+        print()
+
+        # End of run callbacks:
+        self._callbacks_handler.on_run_end()
+
+        # Clear the interface:
+        self._clear()
+
+        return [loss_value] + metric_values
+
+    def add_auto_logging_callbacks(
+        self,
+        custom_objects: Dict[Union[str, List[str]], str] = None,
+        mlrun_callback__kwargs: Dict[str, Any] = None,
+        tensorboard_callback_kwargs: Dict[str, Any] = None,
+    ):
+        """
+        Get automatic logging callbacks to both MLRun's context and Tensorboard. For further features of logging to both
+        MLRun and Tensorboard, see 'pytorch.callbacks.MLRunLoggingCallback' and
+        'pytorch.callbacks.TensorboardLoggingCallback'.
+
+        :param custom_objects:              Custom objects the model is using. Expecting a dictionary with the classes
+                                            names to import as keys (if multiple classes needed to be imported from the
+                                            same py file a list can be given) and the python file from where to import
+                                            them as their values. The model class itself must be specified in order to
+                                            properly save it for later being loaded with a handler. For example:
+                                            {
+                                                "class_name": "/path/to/model.py",
+                                                ["layer1", "layer2"]: "/path/to/custom_layers.py"
+                                            }
+        :param mlrun_callback__kwargs:      Key word arguments for the MLRun callback. For further information see the
+                                            documentation of the class 'MLRunLoggingCallback'. Note that both 'context',
+                                            'custom_objects' and 'auto_log' parameters are already given here.
+        :param tensorboard_callback_kwargs: Key word arguments for the tensorboard callback. For further information see
+                                            the documentation of the class 'TensorboardLoggingCallback'. Note that both
+                                            'context' and 'auto_log' parameters are already given here.
+        """
+        # Set the dictionaries defaults:
+        mlrun_callback__kwargs = (
+            {} if mlrun_callback__kwargs is None else mlrun_callback__kwargs
+        )
+        tensorboard_callback_kwargs = (
+            {} if tensorboard_callback_kwargs is None else tensorboard_callback_kwargs
+        )
+
+        # Initialize and return the callbacks:
+        self._callbacks.append(
+            MLRunLoggingCallback(
+                context=self._context,
+                custom_objects=custom_objects,
+                auto_log=True,
+                **mlrun_callback__kwargs
+            )
+        )
+        self._callbacks.append(
+            TensorboardLoggingCallback(
+                context=self._context, auto_log=True, **tensorboard_callback_kwargs
+            )
+        )
+
+    def _parse_and_store(
+        self,
         training_set: DataLoader = None,
         loss_function: Module = None,
         optimizer: Optimizer = None,
@@ -47,14 +335,11 @@ class PyTorchMLRunInterface:
         validation_iterations: int = None,
         callbacks: List[Callback] = None,
         use_cuda: bool = True,
-        use_horovod: bool = False,
+        use_horovod: bool = None,
     ):
         """
-        Initialize an interface for running training and evaluation on the given parameters. Notice this initializer
-        should not be used directly. To get an interface ready for training / evaluation, use
-        'PyTorchMLRunInterface.init_trainer' / 'PyTorchMLRunInterface.init_evaluator'.
+        Parse and store the given input so the interface can starting training / evaluating.
 
-        :param model:                    The model to train.
         :param training_set:             A data loader for the training process.
         :param loss_function:            The loss function to use during training.
         :param optimizer:                The optimizer to use during the training.
@@ -76,9 +361,9 @@ class PyTorchMLRunInterface:
         :param use_cuda:                 Whether or not to use cuda. Only relevant if cuda is available. Defaulted to
                                          True.
         :param use_horovod:              Whether or not to use horovod - a distributed training framework. Defaulted to
-                                         False.
+                                         None, meaning it will be read from context if available and if not - False.
 
-        :raise ValueError: In case one of the given parameters are invalid.
+        :raise ValueError: In case on of the given parameters is invalid.
         """
         # Parse and validate input:
         # # Metric functions:
@@ -142,14 +427,17 @@ class PyTorchMLRunInterface:
                         scheduler_step_frequency
                     )
                 )
-            scheduler_step_frequency = int(training_iterations * scheduler_step_frequency)
-
+            scheduler_step_frequency = int(
+                training_iterations * scheduler_step_frequency
+            )
         # # Callbacks:
         if callbacks is None:
             callbacks = []
+        # # Use horovod:
+        if use_horovod is None:
+            use_horovod = self._context.labels.get('kind', "") == "mpijob"
 
         # Store the configurations:
-        self._model = model
         self._training_set = training_set
         self._loss_function = loss_function
         self._optimizer = optimizer
@@ -164,268 +452,32 @@ class PyTorchMLRunInterface:
         self._use_cuda = use_cuda
         self._use_horovod = use_horovod
 
-        # Prepare inner attributes:
-        self._hvd = None
-        self._training_sampler = None  # type: DistributedSampler
-        self._validation_sampler = None  # type: DistributedSampler
-        self._callbacks_handler = None  # type: CallbacksHandler
-
-    @classmethod
-    def init_trainer(
-        cls,
-        model: Module,
-        training_set: DataLoader,
-        loss_function: Module,
-        optimizer: Optimizer,
-        validation_set: DataLoader = None,
-        metric_functions: List[MetricFunctionType] = None,
-        scheduler=None,
-        epochs: int = 1,
-        training_iterations: int = None,
-        validation_iterations: int = None,
-        callbacks: List[Callback] = None,
-        use_cuda: bool = True,
-        use_horovod: bool = False,
-    ) -> "PyTorchMLRunInterface":
+    def _objects_to_cuda(self):
         """
-        Initialize the interface for training on the given parameters.
-
-        :param model:                 The model to train.
-        :param training_set:          A data loader for the training process.
-        :param loss_function:         The loss function to use during training.
-        :param optimizer:             The optimizer to use during the training.
-        :param validation_set:        A data loader for the validation process.
-        :param metric_functions:      The metrics to use on training and validation.
-        :param scheduler:             Scheduler to use on the optimizer at the end of each epoch. The scheduler must
-                                      have a 'step' method with no input.
-        :param epochs:                Amount of epochs to perform. Defaulted to a single epoch.
-        :param training_iterations:   Amount of iterations (batches) to perform on each epoch's training. If 'None' the
-                                      entire training set will be used.
-        :param validation_iterations: Amount of iterations (batches) to perform on each epoch's validation. If 'None'
-                                      the entire validation set will be used.
-        :param callbacks:             The callbacks to use on this run.
-        :param use_cuda:              Whether or not to use cuda. Only relevant if cuda is available. Defaulted to True.
-        :param use_horovod:           Whether or not to use horovod - a distributed training framework. Defaulted to
-                                      False.
-
-        :return: The initialized trainer.
+        Copy the interface objects - model, loss, optimizer and scheduler to cuda memory.
         """
-        return cls(
-            model=model,
-            training_set=training_set,
-            loss_function=loss_function,
-            optimizer=optimizer,
-            validation_set=validation_set,
-            metric_functions=metric_functions,
-            scheduler=scheduler,
-            epochs=epochs,
-            training_iterations=training_iterations,
-            validation_iterations=validation_iterations,
-            callbacks=callbacks,
-            use_cuda=use_cuda,
-            use_horovod=use_horovod,
-        )
+        # Model:
+        if not self._model_in_cuda:
+            self._model = self._model.cuda()
+            self._model_in_cuda = True
 
-    @classmethod
-    def init_evaluator(
-        cls,
-        model: Module,
-        dataset: DataLoader,
-        loss_function: Module = None,
-        metric_functions: List[MetricFunctionType] = None,
-        iterations: int = None,
-        callbacks: List[Callback] = None,
-        use_cuda: bool = True,
-        use_horovod: bool = False,
-    ) -> "PyTorchMLRunInterface":
-        """
-        Initialize the interface for evaluation on the given parameters.
+        # Loss:
+        if self._loss_function is not None:
+            self._loss_function = self._loss_function.cuda()
 
-        :param model:            The model to evaluate.
-        :param dataset:          A data loader for the validation process.
-        :param loss_function:    The loss function to use during training.
-        :param metric_functions: The metrics to use on training and validation.
-        :param iterations:       Amount of iterations (batches) to perform on the dataset. If 'None' the entire dataset
-                                 will be used.
-        :param callbacks:        The callbacks to use on this run.
-        :param use_cuda:         Whether or not to use cuda. Only relevant if cuda is available. Defaulted to True.
-        :param use_horovod:      Whether or not to use horovod - a distributed training framework. Defaulted to False.
-
-        :return: The initialized evaluator.
-        """
-        return cls(
-            model=model,
-            loss_function=loss_function,
-            validation_set=dataset,
-            metric_functions=metric_functions,
-            validation_iterations=iterations,
-            callbacks=callbacks,
-            use_cuda=use_cuda,
-            use_horovod=use_horovod,
-        )
-
-    def train(self):
-        """
-        Initiate a training process on this interface configuration.
-        """
-        # Setup the inner attributes (initializing horovod and creating the callbacks handler):
-        self._setup()
-
-        # Beginning of run callbacks:
-        self._callbacks_handler.on_run_begin()
-
-        # Start the epochs:
-        for epoch in range(self._epochs):
-            # Beginning of a epoch callbacks:
-            self._callbacks_handler.on_epoch_begin(epoch=epoch)
-            print(
-                "Epoch {}/{}:".format(
-                    str(epoch + 1).rjust(len(str(self._epochs))), self._epochs
+        # Optimizer:
+        if self._optimizer is not None:
+            for key in self._optimizer.state.keys():
+                self._optimizer.state[key] = self._tensor_to_cuda(
+                    tensor=self._optimizer.state[key]
                 )
-            )
 
-            # Train:
-            self._callbacks_handler.on_train_begin()
-            self._train()
-            if not self._callbacks_handler.on_train_end():
-                break
-
-            # Validate:
-            if self._validation_set is not None:
-                self._callbacks_handler.on_validation_begin()
-                loss_value, metric_values = self._validate()
-                # If horovod is used, wait for all ranks to calculate the loss and metrics averages:
-                if self._use_horovod:
-                    loss_value = self._metric_average(
-                        rank_value=loss_value,
-                        name="average_{}".format(
-                            self._get_metric_name(metric=self._loss_function)
-                        ),
-                    )
-                    metric_values = [
-                        self._metric_average(
-                            rank_value=metric_value,
-                            name="average_{}".format(
-                                self._get_metric_name(metric=metric_function)
-                            ),
-                        )
-                        for metric_value, metric_function in zip(
-                            metric_values, self._metric_functions
-                        )
-                    ]
-                self._print_results(loss_value=loss_value, metric_values=metric_values)
-                if not self._callbacks_handler.on_validation_end(
-                    loss_value=loss_value, metric_values=metric_values
-                ):
-                    break
-
-            # End of a epoch callbacks:
-            if not self._callbacks_handler.on_epoch_end(epoch=epoch):
-                break
-            print()
-
-        # End of run callbacks:
-        self._callbacks_handler.on_run_end()
-
-    def evaluate(self) -> List[MetricValueType]:
-        """
-        Initiate an evaluation process on this interface configuration.
-
-        :return: The evaluation loss and metrics results in a list.
-        """
-        # Setup the inner attributes (initializing horovod and creating the callbacks handler):
-        self._setup()
-
-        # Beginning of run callbacks:
-        self._callbacks_handler.on_run_begin()
-
-        # Evaluate:
-        self._callbacks_handler.on_validation_begin()
-        loss_value, metric_values = self._validate(is_evaluation=True)
-
-        # If horovod is used, wait for all ranks to calculate the loss and metrics averages:
-        if self._use_horovod:
-            loss_value = self._metric_average(
-                rank_value=loss_value,
-                name="average_{}".format(
-                    self._get_metric_name(metric=self._loss_function)
-                ),
-            )
-            metric_values = [
-                self._metric_average(
-                    rank_value=metric_value,
-                    name="average_{}".format(
-                        self._get_metric_name(metric=metric_function)
-                    ),
+        # Scheduler:
+        if self._scheduler is not None:
+            for key in self._scheduler.__dict__.keys():
+                self._scheduler.__dict__[key] = self._tensor_to_cuda(
+                    tensor=self._scheduler.__dict__[key]
                 )
-                for metric_value, metric_function in zip(
-                    metric_values, self._metric_functions
-                )
-            ]
-
-        # End the validation:
-        self._print_results(loss_value=loss_value, metric_values=metric_values)
-        self._callbacks_handler.on_validation_end(
-            loss_value=loss_value, metric_values=metric_values
-        )
-        print()
-
-        # End of run callbacks:
-        self._callbacks_handler.on_run_end()
-
-        return [loss_value] + metric_values
-
-    def add_auto_logging_callbacks(
-        self,
-        context: MLClientCtx,
-        custom_objects: Dict[Union[str, List[str]], str] = None,
-        mlrun_callback__kwargs: Dict[str, Any] = None,
-        tensorboard_callback_kwargs: Dict[str, Any] = None,
-    ):
-        """
-        Get automatic logging callbacks to both MLRun's context and Tensorboard. For further features of logging to both
-        MLRun and Tensorboard, see 'pytorch.callbacks.MLRunLoggingCallback' and
-        'pytorch.callbacks.TensorboardLoggingCallback'.
-
-        :param context:                     The context to use for the logs.
-        :param custom_objects:              Custom objects the model is using. Expecting a dictionary with the classes
-                                            names to import as keys (if multiple classes needed to be imported from the
-                                            same py file a list can be given) and the python file from where to import
-                                            them as their values. The model class itself must be specified in order to
-                                            properly save it for later being loaded with a handler. For example:
-                                            {
-                                                "class_name": "/path/to/model.py",
-                                                ["layer1", "layer2"]: "/path/to/custom_layers.py"
-                                            }
-        :param mlrun_callback__kwargs:      Key word arguments for the MLRun callback. For further information see the
-                                            documentation of the class 'MLRunLoggingCallback'. Note that both 'context',
-                                            'custom_objects' and 'auto_log' parameters are already given here.
-        :param tensorboard_callback_kwargs: Key word arguments for the tensorboard callback. For further information see
-                                            the documentation of the class 'TensorboardLoggingCallback'. Note that both
-                                            'context' and 'auto_log' parameters are already given here.
-        """
-        # Set the dictionaries defaults:
-        mlrun_callback__kwargs = (
-            {} if mlrun_callback__kwargs is None else mlrun_callback__kwargs
-        )
-        tensorboard_callback_kwargs = (
-            {} if tensorboard_callback_kwargs is None else tensorboard_callback_kwargs
-        )
-
-        # Initialize and return the callbacks:
-        self._callbacks.append(
-            MLRunLoggingCallback(
-                context=context,
-                custom_objects=custom_objects,
-                auto_log=True,
-                **mlrun_callback__kwargs
-            )
-        )
-        self._callbacks.append(
-            TensorboardLoggingCallback(
-                context=context, auto_log=True, **tensorboard_callback_kwargs
-            )
-        )
 
     def _setup(self):
         """
@@ -450,7 +502,12 @@ class PyTorchMLRunInterface:
                 torch.cuda.set_device(self._hvd.local_rank())
                 mp_data_loader_kwargs["num_workers"] = 1
                 mp_data_loader_kwargs["pin_memory"] = True
-            self._model.cuda()
+            # Move the model and the stored objects to the GPU:
+            self._objects_to_cuda()
+        elif self._model_in_cuda:
+            # Move the model back to the CPU:
+            self._model = self._model.cpu()
+            self._model_in_cuda = False
 
         # Initialize a callbacks handler:
         if self._use_horovod:
@@ -536,8 +593,7 @@ class PyTorchMLRunInterface:
             if batch == self._training_iterations:
                 break
             if self._use_cuda and torch.cuda.is_available():
-                x = x.cuda()
-                y_true = y_true.cuda()
+                x, y_true = self._tensor_to_cuda(tensor=(x, y_true))
 
             # Beginning of a batch callbacks:
             self._callbacks_handler.on_train_batch_begin(
@@ -626,8 +682,7 @@ class PyTorchMLRunInterface:
                     batch=batch, x=x, y_true=y_true
                 )
                 if self._use_cuda and torch.cuda.is_available():
-                    x = x.cuda()
-                    y_true = y_true.cuda()
+                    x, y_true = self._tensor_to_cuda(tensor=(x, y_true))
 
                 # Infer the input:
                 y_pred = self._model(x)
@@ -726,6 +781,33 @@ class PyTorchMLRunInterface:
             return HyperparametersKeys.OPTIMIZER, ["param_groups", 0, "learning_rate"]
         return None
 
+    def _clear(self):
+        """
+        Clear the interface from the methods parameters, setting them back to None. The interface's model will not be
+        touched.
+        """
+        # Clear the methods parameters:
+        self._training_set = None  # type: DataLoader
+        self._loss_function = None  # type: Module
+        self._optimizer = None  # type: Optimizer
+        self._validation_set = None  # type: DataLoader
+        self._metric_functions = None  # type: List[MetricFunctionType]
+        self._scheduler = None
+        self._scheduler_step_frequency = None  # type: int
+        self._epochs = None  # type: int
+        self._training_iterations = None  # type: int
+        self._validation_iterations = None  # type: int
+        self._callbacks = None  # type: List[Callback]
+        self._use_cuda = None  # type: bool
+        self._use_horovod = None  # type: bool
+
+        # Clear the inner attributes:
+        self._hvd = None
+
+        self._training_sampler = None  # type: DistributedSampler
+        self._validation_sampler = None  # type: DistributedSampler
+        self._callbacks_handler = None  # type: CallbacksHandler
+
     @staticmethod
     def _insert_sampler_to_data_loader(
         data_loader: DataLoader,
@@ -764,6 +846,38 @@ class PyTorchMLRunInterface:
         )
         del data_loader
         return with_sampler_data_loader
+
+    @staticmethod
+    def _tensor_to_cuda(
+        tensor: Union[Tensor, Dict, List, Tuple]
+    ) -> Union[Tensor, Dict, List, Tuple]:
+        """
+        Send to given tensor to cuda if it is a tensor. If the given object is a dictionary, the dictionary values will
+        be sent to the function again recursively. If the given object is a list or a tuple, all the values in it will
+        be sent as well. If the given object is not of type torch.Tensor at the end, nothing will happen.
+
+        :param tensor: The batch to sent to cuda.
+
+        :return: The copied tensor in cuda memory.
+        """
+        if isinstance(tensor, Tensor):
+            tensor = tensor.cuda()
+            if tensor._grad is not None:
+                tensor._grad.data = tensor._grad.data.cuda()
+        elif isinstance(tensor, dict):
+            for key in tensor:
+                tensor[key] = PyTorchMLRunInterface._tensor_to_cuda(tensor=tensor[key])
+        elif isinstance(tensor, list):
+            for index in range(len(tensor)):
+                tensor[index] = PyTorchMLRunInterface._tensor_to_cuda(
+                    tensor=tensor[index]
+                )
+        elif isinstance(tensor, tuple):
+            cuda_tensor = ()
+            for value in tensor:
+                cuda_tensor += (PyTorchMLRunInterface._tensor_to_cuda(tensor=value),)
+            tensor = cuda_tensor
+        return tensor
 
     @staticmethod
     def _get_metric_name(metric: MetricFunctionType) -> str:
