@@ -58,7 +58,7 @@ class PyTorchMLRunInterface:
         self._epochs = None  # type: int
         self._training_iterations = None  # type: int
         self._validation_iterations = None  # type: int
-        self._callbacks = None  # type: List[Callback]
+        self._callbacks = []  # type: List[Callback]
         self._use_cuda = None  # type: bool
         self._use_horovod = None  # type: bool
 
@@ -448,7 +448,7 @@ class PyTorchMLRunInterface:
         self._epochs = epochs
         self._training_iterations = training_iterations
         self._validation_iterations = validation_iterations
-        self._callbacks = callbacks
+        self._callbacks += callbacks
         self._use_cuda = use_cuda
         self._use_horovod = use_horovod
 
@@ -797,7 +797,7 @@ class PyTorchMLRunInterface:
         self._epochs = None  # type: int
         self._training_iterations = None  # type: int
         self._validation_iterations = None  # type: int
-        self._callbacks = None  # type: List[Callback]
+        self._callbacks = []  # type: List[Callback]
         self._use_cuda = None  # type: bool
         self._use_horovod = None  # type: bool
 
