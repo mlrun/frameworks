@@ -435,7 +435,7 @@ class PyTorchMLRunInterface:
             callbacks = []
         # # Use horovod:
         if use_horovod is None:
-            use_horovod = self._context.labels.get('kind', "") == "mpijob"
+            use_horovod = self._context.labels.get("kind", "") == "mpijob"
 
         # Store the configurations:
         self._training_set = training_set
@@ -590,8 +590,11 @@ class PyTorchMLRunInterface:
             metrics=[self._loss_function] + self._metric_functions,
         )
         for batch, (x, y_true) in progress_bar:
+            # Check if iteration exceeded:
             if batch == self._training_iterations:
                 break
+
+            # Move to GPU if needed:
             if self._use_cuda and torch.cuda.is_available():
                 x, y_true = self._tensor_to_cuda(tensor=(x, y_true))
 
@@ -604,7 +607,9 @@ class PyTorchMLRunInterface:
             self._optimizer.zero_grad()
 
             # Infer the input:
+            self._callbacks_handler.on_inference_begin(x=x)
             y_pred = self._model(x)
+            self._callbacks_handler.on_inference_end(y_pred=y_pred, y_true=y_true)
 
             # Calculate loss:
             self._callbacks_handler.on_train_loss_begin()
@@ -644,7 +649,7 @@ class PyTorchMLRunInterface:
 
             # End of batch callbacks:
             if not self._callbacks_handler.on_train_batch_end(
-                batch=batch, x=x, y_true=y_true, y_pred=y_pred
+                batch=batch, x=x, y_pred=y_pred, y_true=y_true
             ):
                 break
 
@@ -674,18 +679,23 @@ class PyTorchMLRunInterface:
         )
         with torch.no_grad():
             for batch, (x, y_true) in progress_bar:
+                # Check if iteration exceeded:
                 if batch == self._validation_iterations:
                     break
+
+                # Move to GPU if needed:
+                if self._use_cuda and torch.cuda.is_available():
+                    x, y_true = self._tensor_to_cuda(tensor=(x, y_true))
 
                 # Beginning of a batch callbacks:
                 self._callbacks_handler.on_validation_batch_begin(
                     batch=batch, x=x, y_true=y_true
                 )
-                if self._use_cuda and torch.cuda.is_available():
-                    x, y_true = self._tensor_to_cuda(tensor=(x, y_true))
 
                 # Infer the input:
+                self._callbacks_handler.on_inference_begin(x=x)
                 y_pred = self._model(x)
+                self._callbacks_handler.on_inference_end(y_pred=y_pred, y_true=y_true)
 
                 # Calculate loss:
                 self._callbacks_handler.on_validation_loss_begin()
@@ -712,7 +722,10 @@ class PyTorchMLRunInterface:
 
                 # End of batch callbacks:
                 if not self._callbacks_handler.on_validation_batch_end(
-                    batch=batch, x=x, y_true=y_true, y_pred=y_pred
+                    batch=batch,
+                    x=x,
+                    y_pred=y_pred,
+                    y_true=y_true,
                 ):
                     break
 

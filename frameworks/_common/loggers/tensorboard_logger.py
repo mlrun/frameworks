@@ -1,11 +1,8 @@
-from typing import Union, Dict, List, Tuple, Any, Callable, TypeVar, Generic
+from typing import Union, Dict, List, Any, Callable, TypeVar
 from abc import abstractmethod
 import os
 from datetime import datetime
 import yaml
-
-from tensorflow import Variable as TensorflowWeight
-from torch.nn import Parameter as PyTorchWeight
 
 import mlrun
 from mlrun.config import config
@@ -14,11 +11,11 @@ from mlrun import MLClientCtx
 from frameworks._common.loggers.logger import Logger, TrackableType
 
 
-# Define a type variable for the different weight holder objects of the supported frameworks:
-Weight = TypeVar("Weight", TensorflowWeight, PyTorchWeight)
+# Define a type variable for the different tensor type objects of the supported frameworks:
+Weight = TypeVar('Weight')
 
 
-class TensorboardLogger(Logger, Generic[Weight]):
+class TensorboardLogger(Logger):
     """
     An abstract tensorboard logger class for logging the information collected during training / evaluation of the base
     logger to tensorboard. Each framework has its own way of logging to tensorboard, but each must implement the entire
@@ -57,7 +54,7 @@ class TensorboardLogger(Logger, Generic[Weight]):
 
     def __init__(
         self,
-        statistics_functions: List[Callable[[Union[Weight]], Union[float, Weight]]],
+        statistics_functions: List[Callable[[Weight], Union[float, Weight]]],
         context: MLClientCtx = None,
         tensorboard_directory: str = None,
         run_name: str = None,
@@ -101,7 +98,7 @@ class TensorboardLogger(Logger, Generic[Weight]):
             ] = {}  # type: Dict[str, List[float]]
 
     @property
-    def weights(self):
+    def weights(self) -> Dict[str, Weight]:
         """
         Get the logged weights dictionary. Each of the logged weight will be found by its name.
 
@@ -110,7 +107,7 @@ class TensorboardLogger(Logger, Generic[Weight]):
         return self._weights
 
     @property
-    def weight_statistics(self):
+    def weight_statistics(self) -> Dict[str, Dict[str, List[float]]]:
         """
         Get the logged statistics for all the tracked weights. Each statistic has a dictionary of weights and their list
         of epochs values.

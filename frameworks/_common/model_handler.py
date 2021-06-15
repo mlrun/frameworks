@@ -1,10 +1,14 @@
 import os
 import sys
-from typing import Union, List, Dict, Any
+from typing import TypeVar, Union, List, Dict, Any
 from abc import ABC, abstractmethod
 import importlib.util
 import mlrun
 from mlrun.artifacts import Artifact
+
+
+# Define a generic model type for the handler to have:
+Model = TypeVar("Model")
 
 
 class ModelHandler(ABC):
@@ -13,7 +17,10 @@ class ModelHandler(ABC):
     """
 
     def __init__(
-        self, model=None, model_name: str = "model", context: mlrun.MLClientCtx = None
+        self,
+        model: Model = None,
+        model_name: str = "model",
+        context: mlrun.MLClientCtx = None,
     ):
         """
         Initialize the handler. The model can be set here so it won't require loading.
@@ -27,7 +34,7 @@ class ModelHandler(ABC):
         self._context = context
 
     @property
-    def model(self):
+    def model(self) -> Model:
         """
         Get the handled model. Will return None in case the model is not initialized.
 

@@ -65,6 +65,7 @@ class Callback(ABC):
     ):
         """
         Basic setup command, storing all the given objects in the callback's objects dictionary.
+
         :param model:            The model to be stored in this callback.
         :param training_set:     The training set to be stored in this callback.
         :param validation_set:   The validation set to be stored in this callback.
@@ -96,16 +97,20 @@ class Callback(ABC):
     def on_epoch_begin(self, epoch: int):
         """
         After the trainer epoch begins, this method will be called.
+
         :param epoch: The epoch that is about to begin.
         """
         pass
 
-    def on_epoch_end(self, epoch: int):
+    def on_epoch_end(self, epoch: int) -> bool:
         """
         Before the trainer epoch ends, this method will be called.
+
         :param epoch: The epoch that has just ended.
+
+        :return Can optionally return a boolean value indicating whether or not to continue the training process.
         """
-        pass
+        return True
 
     def on_train_begin(self):
         """
@@ -113,11 +118,13 @@ class Callback(ABC):
         """
         pass
 
-    def on_train_end(self):
+    def on_train_end(self) -> bool:
         """
         Before the trainer training of the current epoch ends, this method will be called.
+
+        :return Can optionally return a boolean value indicating whether or not to continue the training process.
         """
-        pass
+        return True
 
     def on_validation_begin(self):
         """
@@ -128,52 +135,82 @@ class Callback(ABC):
 
     def on_validation_end(
         self, loss_value: MetricValueType, metric_values: List[float]
-    ):
+    ) -> bool:
         """
         Before the trainer / evaluator validation (in a trainer's case it will be per epoch) ends, this method will be
         called.
+
         :param loss_value:    The loss summary of this validation.
         :param metric_values: The metrics summaries of this validation.
-        """
-        pass
 
-    def on_train_batch_begin(self, batch: int, x: Tensor, y_true: Tensor):
+        :return Can optionally return a boolean value indicating whether or not to continue the training / evaluation
+                process.
+        """
+        return True
+
+    def on_train_batch_begin(self, batch: int, x, y_true: Tensor):
         """
         After the trainer training of the given batch begins, this method will be called.
+
         :param batch:  The current batch iteration of when this method is called.
-        :param x:      The input part of the current batch.
-        :param y_true: The true value part of the current batch.
+        :param x:      The input of the current batch.
+        :param y_true: The ground truth value of the current batch.
         """
         pass
 
-    def on_train_batch_end(self, batch: int, x: Tensor, y_true: Tensor, y_pred: Tensor):
+    def on_train_batch_end(self, batch: int, x, y_pred: Tensor, y_true: Tensor) -> bool:
         """
         Before the trainer training of the given batch ends, this method will be called.
-        :param batch:  The current batch iteration of when this method is called.
-        :param x:      The input part of the current batch.
-        :param y_true: The true value part of the current batch.
-        :param y_pred: The prediction (output) of the model for this batch's input ('x').
-        """
-        pass
 
-    def on_validation_batch_begin(self, batch: int, x: Tensor, y_true: Tensor):
+        :param batch:  The current batch iteration of when this method is called.
+        :param x:      The input of the current batch.
+        :param y_pred: The prediction (output) of the model for this batch's input ('x').
+        :param y_true: The ground truth value of the current batch.
+
+        :return Can optionally return a boolean value indicating whether or not to continue the training process.
+        """
+        return True
+
+    def on_validation_batch_begin(self, batch: int, x, y_true: Tensor):
         """
         After the trainer / evaluator validation of the given batch begins, this method will be called.
+
         :param batch:  The current batch iteration of when this method is called.
-        :param x:      The input part of the current batch.
-        :param y_true: The true value part of the current batch.
+        :param x:      The input of the current batch.
+        :param y_true: The ground truth value of the current batch.
         """
         pass
 
-    def on_validation_batch_end(
-        self, batch: int, x: Tensor, y_true: Tensor, y_pred: Tensor
-    ):
+    def on_validation_batch_end(self, batch: int, x, y_pred: Tensor, y_true: Tensor) -> bool:
         """
         Before the trainer / evaluator validation of the given batch ends, this method will be called.
+
         :param batch:  The current batch iteration of when this method is called.
-        :param x:      The input part of the current batch.
-        :param y_true: The true value part of the current batch.
+        :param x:      The input of the current batch.
         :param y_pred: The prediction (output) of the model for this batch's input ('x').
+        :param y_true: The ground truth value of the current batch.
+
+        :return Can optionally return a boolean value indicating whether or not to continue the training / evaluation
+                process.
+        """
+        return True
+
+    def on_inference_begin(self, x):
+        """
+        Before the inference of the current batch sample into the model, this method will be called to process the
+        input.
+
+        :param x: The input of the current batch.
+        """
+        pass
+
+    def on_inference_end(self, y_pred: Tensor, y_true: Tensor):
+        """
+        After the inference of the current batch sample, this method will be called to process the output along side the
+        current batch ground truth.
+
+        :param y_pred: The prediction (output) of the model for this batch's input ('x').
+        :param y_true: The ground truth value of the current batch.
         """
         pass
 
@@ -186,6 +223,7 @@ class Callback(ABC):
     def on_train_loss_end(self, loss_value: MetricValueType):
         """
         After the trainer training calculation of the loss, this method will be called.
+
         :param loss_value: The recent loss value calculated during training.
         """
         pass
@@ -199,6 +237,7 @@ class Callback(ABC):
     def on_validation_loss_end(self, loss_value: MetricValueType):
         """
         After the trainer / evaluator validating calculation of the loss, this method will be called.
+
         :param loss_value: The recent loss value calculated during validation.
         """
         pass
@@ -212,6 +251,7 @@ class Callback(ABC):
     def on_train_metrics_end(self, metric_values: List[MetricValueType]):
         """
         After the trainer training calculation of the metrics, this method will be called.
+
         :param metric_values: The recent metric values calculated during training.
         """
         pass
@@ -225,6 +265,7 @@ class Callback(ABC):
     def on_validation_metrics_end(self, metric_values: List[MetricValueType]):
         """
         After the trainer / evaluator validating calculation of the metrics, this method will be called.
+
         :param metric_values: The recent metric values calculated during validation.
         """
         pass
@@ -267,9 +308,10 @@ class Callback(ABC):
 
     def on_call_check(self) -> bool:
         """
-        Before the loggers handler is calling its loggers, this method will be called to know if this callback
-        should run. For example, in case of multiprocessing, logging should happen only for loggers who are called
+        Before the callbacks handler is calling its callbacks, this method will be called to know if this callback
+        should run. For example, in case of multiprocessing, logging should happen only for callbacks who are called
         from worker 0. The worker id check should be done here.
+
         :return: True if the call is ok to run and false if not.
         """
         return True

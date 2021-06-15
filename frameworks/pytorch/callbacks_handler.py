@@ -29,6 +29,8 @@ class _CallbackInterface:
     ON_TRAIN_BATCH_END = "on_train_batch_end"
     ON_VALIDATION_BATCH_BEGIN = "on_validation_batch_begin"
     ON_VALIDATION_BATCH_END = "on_validation_batch_end"
+    ON_INFERENCE_BEGIN = "on_inference_begin"
+    ON_INFERENCE_END = "on_inference_end"
     ON_TRAIN_LOSS_BEGIN = "on_train_loss_begin"
     ON_TRAIN_LOSS_END = "on_train_loss_end"
     ON_VALIDATION_LOSS_BEGIN = "on_validation_loss_begin"
@@ -57,9 +59,9 @@ class CallbacksHandler:
         initialized instances or as a tuple where [0] is a name that will be attached to him and [1] will be the
         initialized callback instance. Notice that if a callback was given without a name, his name to refer will be
         his class name.
-        
+
         :param callbacks: The callbacks to handle.
-        
+
         :raise KeyError: In case of duplicating callbacks names.
         """
         # Initialize the callbacks dictionary:
@@ -90,7 +92,7 @@ class CallbacksHandler:
     def callbacks(self) -> Dict[str, Callback]:
         """
         Get the callbacks dictionary handled by this handler.
-        
+
         :return: The callbacks dictionary.
         """
         return self._callbacks
@@ -109,7 +111,7 @@ class CallbacksHandler:
         """
         Call the 'on_setup' method of every callback in the callbacks list. If the list is 'None' (not given), all
         callbacks will be called.
-        
+
         :param model:            The model to pass to the method.
         :param training_set:     The training set to pass to the method.
         :param validation_set:   The validation set to pass to the method.
@@ -118,7 +120,7 @@ class CallbacksHandler:
         :param metric_functions: The metric functions to pass to the method.
         :param scheduler:        The scheduler to pass to the method.
         :param callbacks:        The callbacks names to use. If 'None', all of the callbacks will be used.
-        
+
         :return: True if all of the callbacks called returned True and False if not.
         """
         return self._run_callbacks(
@@ -137,9 +139,9 @@ class CallbacksHandler:
         """
         Call the 'on_run_begin' method of every callback in the callbacks list. If the list is 'None' (not given), all
         callbacks will be called.
-        
+
         :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        
+
         :return: True if all of the callbacks called returned True and False if not.
         """
         return self._run_callbacks(
@@ -151,9 +153,9 @@ class CallbacksHandler:
         """
         Call the 'on_run_end' method of every callback in the callbacks list. If the list is 'None' (not given), all
         callbacks will be called.
-        
+
         :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
-        
+
         :return: True if all of the callbacks called returned True and False if not.
         """
         return self._run_callbacks(
@@ -259,7 +261,7 @@ class CallbacksHandler:
         )
 
     def on_train_batch_begin(
-        self, batch: int, x: Tensor, y_true: Tensor, callbacks: List[str] = None
+        self, batch: int, x, y_true: Tensor, callbacks: List[str] = None
     ) -> bool:
         """
         Call the 'on_train_batch_begin' method of every callback in the callbacks list. If the list is 'None'
@@ -283,9 +285,9 @@ class CallbacksHandler:
     def on_train_batch_end(
         self,
         batch: int,
-        x: Tensor,
-        y_true: Tensor,
+        x,
         y_pred: Tensor,
+        y_true: Tensor,
         callbacks: List[str] = None,
     ) -> bool:
         """
@@ -294,8 +296,8 @@ class CallbacksHandler:
 
         :param batch:     The current batch iteration of when this method is called.
         :param x:         The input part of the current batch.
-        :param y_true:    The true value part of the current batch.
         :param y_pred:    The prediction (output) of the model for this batch's input ('x').
+        :param y_true:    The true value part of the current batch.
         :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
 
         :return: True if all of the callbacks called returned True and False if not.
@@ -305,12 +307,12 @@ class CallbacksHandler:
             callbacks=self._parse_names(names=callbacks),
             batch=batch,
             x=x,
-            y_true=y_true,
             y_pred=y_pred,
+            y_true=y_true,
         )
 
     def on_validation_batch_begin(
-        self, batch: int, x: Tensor, y_true: Tensor, callbacks: List[str] = None
+        self, batch: int, x, y_true: Tensor, callbacks: List[str] = None
     ) -> bool:
         """
         Call the 'on_validation_batch_begin' method of every callback in the callbacks list. If the list is 'None'
@@ -334,9 +336,9 @@ class CallbacksHandler:
     def on_validation_batch_end(
         self,
         batch: int,
-        x: Tensor,
-        y_true: Tensor,
+        x,
         y_pred: Tensor,
+        y_true: Tensor,
         callbacks: List[str] = None,
     ) -> bool:
         """
@@ -345,8 +347,8 @@ class CallbacksHandler:
 
         :param batch:     The current batch iteration of when this method is called.
         :param x:         The input part of the current batch.
-        :param y_true:    The true value part of the current batch.
         :param y_pred:    The prediction (output) of the model for this batch's input ('x').
+        :param y_true:    The true value part of the current batch.
         :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
 
         :return: True if all of the callbacks called returned True and False if not.
@@ -356,8 +358,51 @@ class CallbacksHandler:
             callbacks=self._parse_names(names=callbacks),
             batch=batch,
             x=x,
-            y_true=y_true,
             y_pred=y_pred,
+            y_true=y_true,
+        )
+
+    def on_inference_begin(
+        self,
+        x,
+        callbacks: List[str] = None,
+    ) -> bool:
+        """
+        Call the 'on_inference_begin' method of every callback in the callbacks list. If the list is 'None' (not given),
+        all callbacks will be called.
+
+        :param x:         The input part of the current batch.
+        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
+
+        :return: True if all of the callbacks called returned True and False if not.
+        """
+        return self._run_callbacks(
+            method_name=_CallbackInterface.ON_INFERENCE_BEGIN,
+            callbacks=self._parse_names(names=callbacks),
+            x=x,
+        )
+
+    def on_inference_end(
+        self,
+        y_pred: Tensor,
+        y_true: Tensor,
+        callbacks: List[str] = None,
+    ) -> bool:
+        """
+        Call the 'on_inference_end' method of every callback in the callbacks list. If the list is 'None' (not given),
+        all callbacks will be called.
+
+        :param y_pred:    The prediction (output) of the model for this batch's input ('x').
+        :param y_true:    The true value part of the current batch.
+        :param callbacks: The callbacks names to use. If 'None', all of the callbacks will be used.
+
+        :return: True if all of the callbacks called returned True and False if not.
+        """
+        return self._run_callbacks(
+            method_name=_CallbackInterface.ON_INFERENCE_END,
+            callbacks=self._parse_names(names=callbacks),
+            y_pred=y_pred,
+            y_true=y_true,
         )
 
     def on_train_loss_begin(self, callbacks: List[str] = None) -> bool:

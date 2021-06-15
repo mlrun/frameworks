@@ -1,4 +1,4 @@
-from typing import Union, List, Dict, Tuple, Callable, Collection
+from typing import Union, List, Dict, Tuple, Callable
 import numpy as np
 from torch import Tensor
 from torch.nn import Module, Parameter
